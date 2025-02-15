@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@v10.1.0/ol.css">
+
+    <style>
+        .map {
+            width: 100%;
+            height: 600px;
+        }
+        .overlay {
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            background: white;
+            padding: 10px;
+            border-radius: 4px;
+            box-shadow: 0 0 5px rgba(0,0,0,0.3);
+        }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/ol@v10.1.0/dist/ol.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.5.0/proj4.js"></script>
+</head>
+<body>
+    <div id="map" class="map"></div>    
+    <br>Upiši geometriju u WKT formatu i klikni učitaj</strong><br>
+    
+    <align="left"><button id="ucitaj" class="code">Učitaj WKT geometriju</button>
+    <align="left"><button id="cisti" class="code">Očisti</button>
+    <br> <span id="klijentispis"> --- </span> </b>
+    <br><textarea id="wkttekst" rows="15" cols="130"> </textarea>
+
+    <div class="overlay">
+        Izbor podloge:
+        <select id="baseLayerSelect">
+            <option value="none">None</option>
+            <option value="dof">DOF</option>
+            <option value="osm">OSM</option>
+        </select>
+    </div>
+
+    <script type="text/javascript">
+
+        //**********************************************************
+        //Instanciranje mape i viewa te dodavanje layera, kontrola i ostalog
+        //************************************************************
+
+	const attribution = new ol.control.Attribution({
+  		collapsible: false,
+	});
+
+        proj4.defs('EPSG:3765','+proj=tmerc +lat_0=0 +lon_0=16.5 +k=0.9999 +x_0=500000 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs');
+        ol.proj.proj4.register(proj4);
+        var htrs96 = ol.proj.get('EPSG:3765');
+
+        const stil1 = new ol.style.Style({
+            stroke: new ol.style.Stroke({
+                color: 'red',
+                width: 2,
+            }),
+            fill: new ol.style.Fill({
+                color: 'rgba(200, 39, 39, 0.5)',
+            }),
+        });
+
+        
+        const raster = new ol.layer.Tile({
+            source: new ol.source.OSM()
+        });
+
+        var DOFLayer =  new ol.layer.Tile({
+            title: 'DOF 2019/20',
+            visible: false,
+            source: new ol.source.TileWMS({
+                url: 'https://geoportal.dgu.hr/services/inspire/orthophoto_2019_2020/wms',
+                params: {'LAYERS': 'OI.OrthoimageCoverage', 'TILED': true},
+		attributions: `<a href="https://geoportal.dgu.hr/#/menu/podaci-i-servisi">Geoportal Državne geodetske uprave</a>`
+            })
+        });
+
+        const osm = new ol.layer.Tile({
+            source: new ol.source.OSM(),
+            visible: false,
+        });
+
+        const format = new ol.format.WKT();
+        var wktIzvor1 = new ol.source.Vector();
+        
+        const wktVector1 = new ol.layer.Vector({
+            source: wktIzvor1,
+            style:stil1
+        });
+
+
+        const map = new ol.Map({
+            layers: [DOFLayer, osm, wktVector1],
+	    controls: new ol.control.defaults.defaults({attribution: false}).extend([attribution]),
+            target: 'map',
+            view: new ol.View({
+                projection: htrs96,
+                center: [476200, 5046300],
+                zoom: 10,
+            }),
+        });
+
+        
+         
+document.getElementById('ucitaj').onclick = function() {
+	var znacajkeText= document.getElementById('wkttekst').value;
+	var znacajke = format.readFeatures(znacajkeText, {});
+	znacajke[0].setId("1");
+	wktIzvor1.addFeature (znacajke[0]);
+	map.getView().fit(wktIzvor1.getExtent()); 
+
+	var geomType=znacajke[0].getGeometry().getType();
+
+	if (geomType=="Polygon") {
+		var pov=znacajke[0].getGeometry().getArea().toFixed()
+		document.getElementById("klijentispis").textContent="Površina="+pov;
+	} else if (geomType=="LineString") {
+		var dulj=znacajke[0].getGeometry().getLength().toFixed()
+		document.getElementById("klijentispis").textContent="Duljina="+dulj;
+	}
+ 
+	                      
+};
+
+document.getElementById('cisti').onclick = function() {	
+	wktIzvor1.clear()
+	var ispis1=document.getElementById('wkttekst')
+	ispis1.value= ""
+	var ispis2=document.getElementById('klijentispis')
+	ispis2.textContent= ""
+};
+       
+document.getElementById('baseLayerSelect').addEventListener('change', function() {
+            var selectedLayer = this.value;
+            DOFLayer.setVisible(selectedLayer === 'dof');
+            osm.setVisible(selectedLayer === 'osm');
+});
+
+    </script>
+</body>
+</html>
