@@ -81,6 +81,41 @@
 
 
 
+// 4. Sync views between 2D and 3D
+    let syncing = false;
+
+    function syncViews(fromMap, toMap) {
+      if (syncing) return;
+      syncing = true;
+
+      const view = fromMap.getView();
+      const center = view.getCenter();
+      const zoom = view.getZoom();
+      const rotation = view.getRotation();
+
+      const toView = toMap.getView();
+      toView.setCenter(center);
+      toView.setZoom(zoom);
+      toView.setRotation(rotation);
+
+      syncing = false;
+    }
+
+    // Sync 2D → 3D
+    map2d.getView().on('change:center', () => syncViews(map2d, map3d));
+    map2d.getView().on('change:resolution', () => syncViews(map2d, map3d));
+    map2d.getView().on('change:rotation', () => syncViews(map2d, map3d));
+
+    // Sync 3D → 2D
+    map3d.getView().on('change:center', () => syncViews(map3d, map2d));
+    map3d.getView().on('change:resolution', () => syncViews(map3d, map2d));
+    map3d.getView().on('change:rotation', () => syncViews(map3d, map2d));
+
+
+
+
+
+
   </script>
 </body>
 </html>
