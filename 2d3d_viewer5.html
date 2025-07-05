@@ -78,6 +78,10 @@
       })
     });
 
+
+  map2d.addLayer(vectorLayer);
+  map3d.addLayer(vectorLayer); // ol-cesium will render this in 3D!
+
     // 3. Setup ol-cesium with the 3D OL map
     const ol3d = new olcs.OLCesium({ map: map3d });
     const scene = ol3d.getCesiumScene();
@@ -94,8 +98,7 @@
     ol3d.setEnabled(true);
 
 
-  map2d.addLayer(vectorLayer);
-  map3d.addLayer(vectorLayer); // ol-cesium will render this in 3D!
+  
 
 
   // Add draw interaction on 2D map
