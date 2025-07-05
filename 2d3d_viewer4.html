@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>OL-Cesium Side by Side for GitHub Pages</title>
+
+  <!-- OpenLayers 10.1.0 CSS -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@v10.1.0/ol.css" />
+  <!-- Cesium CSS -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/cesium@latest/Build/Cesium/Widgets/widgets.css" />
+
+
+<style>
+      .map {
+        width: 40%;
+        height:400px;
+      }
+</style>
+
+
+
+  </head>
+<body>
+  <div id="map2d" class="map"></div>
+  <div id="map3d" class="map"></div>
+
+  <!-- OpenLayers 10.1.0 -->
+  <script src="https://cdn.jsdelivr.net/npm/ol@v10.1.0/dist/ol.js"></script>
+  <!-- CesiumJS -->
+  <script src="https://cdn.jsdelivr.net/npm/cesium@latest/Build/Cesium/Cesium.js"></script>
+  <!-- OL-Cesium 2.17.0 -->
+  <script src="https://cdn.jsdelivr.net/npm/ol-cesium@2.17.0/dist/olcesium.min.js"></script>
+
+  <script>
+    // IMPORTANT: Tell Cesium where to find its assets (workers, widgets, etc.)
+    window.CESIUM_BASE_URL = 'https://cdn.jsdelivr.net/npm/cesium@latest/Build/Cesium/';
+
+    // Disable Cesium Ion (no token needed)
+    Cesium.Ion.defaultAccessToken = undefined;
+
+    // 1. 2D OpenLayers map
+    const map2d = new ol.Map({
+      target: 'map2d',
+      layers: [
+        new ol.layer.Tile({ source: new ol.source.OSM() })
+      ],
+      view: new ol.View({
+        center: ol.proj.fromLonLat([0,0]),
+        zoom: 2
+      })
+    });
+
+
+
+    // 2. OL map for Cesium (3D)
+    const map3d = new ol.Map({
+      target: 'map3d',
+      layers: [
+        new ol.layer.Tile({ source: new ol.source.OSM() })
+      ],
+      view: new ol.View({
+        center: ol.proj.fromLonLat([0,0]),
+        zoom: 2
+      })
+    });
+
+    // 3. Setup ol-cesium with the 3D OL map
+    const ol3d = new olcs.OLCesium({ map: map3d });
+    const scene = ol3d.getCesiumScene();
+
+    // Use OpenStreetMap imagery for Cesium (no Ion)
+    scene.imageryLayers.removeAll();
+    scene.imageryLayers.addImageryProvider(
+      new Cesium.OpenStreetMapImageryProvider({
+        url: 'https://a.tile.openstreetmap.org/'
+      })
+    );
+
+    // Enable 3D rendering
+    ol3d.setEnabled(true);
+
+
+
+  </script>
+</body>
+</html>
