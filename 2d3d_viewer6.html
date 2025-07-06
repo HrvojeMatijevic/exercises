@@ -166,22 +166,23 @@
 
 
 
-
-
-// Load your 3D Tileset (point cloud) into the Cesium scene
+// Load your 3D Tileset (point cloud)
 const tileset = new Cesium.Cesium3DTileset({
   url: 'https://tiles-8mb.pages.dev/tileset.json'
 });
 
-// Add it to the Cesium scene once ready
-tileset.readyPromise.then(() => {
-  scene.primitives.add(tileset);
-  // Optionally zoom to it
-  viewer.camera.flyToBoundingSphere(tileset.boundingSphere);
-}).otherwise(error => {
-  console.error('Failed to load 3D tileset:', error);
-});
+// Add tileset directly to the Cesium scene
+scene.primitives.add(tileset);
 
+// Wait until the tileset is ready, then fly to it
+Cesium.when.readyPromise(tileset).then(() => {
+  const boundingSphere = tileset.boundingSphere;
+  scene.camera.flyToBoundingSphere(boundingSphere, {
+    duration: 2
+  });
+}).otherwise(error => {
+  console.error('Failed to load tileset:', error);
+});
 
 
   </script>
