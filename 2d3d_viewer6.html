@@ -166,10 +166,6 @@
 
 
 
-tileset.style = new Cesium.Cesium3DTileStyle({
-  pointSize: 10,       // increase size to make points more visible
-  color: 'inherit'     // keep original color from the point cloud
-});
 
 
 (async function() {
@@ -178,10 +174,9 @@ tileset.style = new Cesium.Cesium3DTileStyle({
     scene.primitives.add(tileset);
 
     tileset.style = new Cesium.Cesium3DTileStyle({
-      pointSize: 10,
-      color: 'inherit'
+      pointSize: 10,       // increase size to make points more visible
+      color: 'inherit'     // keep original color from the point cloud
     });
-
 
     // Optional: zoom to it
     scene.camera.flyToBoundingSphere(tileset.boundingSphere, { duration: 2 });
