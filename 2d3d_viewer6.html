@@ -165,10 +165,23 @@
     map3d.getView().on('change:rotation', () => syncViews(map3d, map2d));
 
 
+
+tileset.style = new Cesium.Cesium3DTileStyle({
+  pointSize: 10,       // increase size to make points more visible
+  color: 'inherit'     // keep original color from the point cloud
+});
+
+
 (async function() {
   try {
     const tileset = await Cesium.Cesium3DTileset.fromUrl('https://tiles-8mb.pages.dev/tileset.json');
     scene.primitives.add(tileset);
+
+    tileset.style = new Cesium.Cesium3DTileStyle({
+      pointSize: 10,
+      color: 'inherit'
+    });
+
 
     // Optional: zoom to it
     scene.camera.flyToBoundingSphere(tileset.boundingSphere, { duration: 2 });
