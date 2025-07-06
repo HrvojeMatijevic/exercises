@@ -171,12 +171,12 @@
 (async function() {
   try {
     const tileset = await Cesium.Cesium3DTileset.fromUrl('https://tiles-8mb.pages.dev/tileset.json');
-  /*
+  
     tileset.style = new Cesium.Cesium3DTileStyle({
       pointSize: 10,       // increase size to make points more visible
       color: 'inherit'     // keep original color from the point cloud
     });
-*/
+
     scene.primitives.add(tileset);
 
     // Optional: zoom to it
