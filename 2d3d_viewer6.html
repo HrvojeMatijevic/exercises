@@ -173,7 +173,7 @@
     const tileset = await Cesium.Cesium3DTileset.fromUrl('https://tiles-8mb.pages.dev/tileset.json');
   
     tileset.style = new Cesium.Cesium3DTileStyle({
-      pointSize: 5,       // increase size to make points more visible
+      pointSize: 3,       // increase size to make points more visible
     });
 
     scene.primitives.add(tileset);
