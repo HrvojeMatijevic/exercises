@@ -165,24 +165,17 @@
     map3d.getView().on('change:rotation', () => syncViews(map3d, map2d));
 
 
+(async function() {
+  try {
+    const tileset = await Cesium.Cesium3DTileset.fromUrl('https://tiles-8mb.pages.dev/tileset.json');
+    scene.primitives.add(tileset);
 
-// Load your 3D Tileset (point cloud)
-const tileset = new Cesium.Cesium3DTileset({
-  url: 'https://tiles-8mb.pages.dev/tileset.json'
-});
-
-// Add tileset directly to the Cesium scene
-scene.primitives.add(tileset);
-
-// Wait until the tileset is ready, then fly to it
-Cesium.when.readyPromise(tileset).then(() => {
-  const boundingSphere = tileset.boundingSphere;
-  scene.camera.flyToBoundingSphere(boundingSphere, {
-    duration: 2
-  });
-}).otherwise(error => {
-  console.error('Failed to load tileset:', error);
-});
+    // Optional: zoom to it
+    scene.camera.flyToBoundingSphere(tileset.boundingSphere, { duration: 2 });
+  } catch (error) {
+    console.error('Failed to load 3D Tileset:', error);
+  }
+})();
 
 
   </script>
