@@ -76,20 +76,13 @@
     // 1. 2D OpenLayers map
     const map2d = new ol.Map({
       target: 'map2d',
-      //view: new ol.View({
-      //  center: ol.proj.fromLonLat([0,0]),
-      //  zoom: 2
-      //})
-
+      layers: [DOFLayer],
 	view: new ol.View({
                 projection: htrs96,
                 center: [476200, 5046300],
                 zoom: 10,
          }),
 
-
-
-      
     });
 
 
@@ -97,34 +90,20 @@
     // 2. OL map for Cesium (3D)
     const map3d = new ol.Map({
       target: 'map3d',
-      layers: [
-        DOFLayer
-      ],
-      //view: new ol.View({
-      //  center: ol.proj.fromLonLat([0,0]),
-      //  zoom: 2
-      //})
-
+   
         view: new ol.View({
                 projection: htrs96,
                 center: [476200, 5046300],
                 zoom: 10,
          }),
-
-
-
-
       
     });
 
 
   map2d.addLayer(vectorLayer);
   
-  //map2d.addLayer(OSMLayer);
-  //map2d.addLayer(DOFLayer);
-
   map3d.addLayer(vectorLayer); // ol-cesium will render this in 3D!
-  //map3d.addLayer(OSMLayer);
+  
 
 
     // 3. Setup ol-cesium with the 3D OL map
@@ -187,6 +166,21 @@
 
 
 
+
+
+// Load your 3D Tileset (point cloud) into the Cesium scene
+const tileset = new Cesium.Cesium3DTileset({
+  url: 'https://tiles-8mb.pages.dev/tileset.json'
+});
+
+// Add it to the Cesium scene once ready
+tileset.readyPromise.then(() => {
+  scene.primitives.add(tileset);
+  // Optionally zoom to it
+  viewer.camera.flyToBoundingSphere(tileset.boundingSphere);
+}).otherwise(error => {
+  console.error('Failed to load 3D tileset:', error);
+});
 
 
 
