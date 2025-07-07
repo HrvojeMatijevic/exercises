@@ -127,7 +127,6 @@ var bldgLayer = new ol.layer.Vector({
     // 2. OL map for Cesium (3D)
     const map3d = new ol.Map({
       target: 'map3d',
-   
         view: new ol.View({
                 projection: htrs96,
                 center: [476200, 5046300],
@@ -146,7 +145,7 @@ var bldgLayer = new ol.layer.Vector({
     // 3. Setup ol-cesium with the 3D OL map
     const ol3d = new olcs.OLCesium({ map: map3d });
     const scene = ol3d.getCesiumScene();
-
+/*
     // Use OpenStreetMap imagery for Cesium (no Ion)
     scene.imageryLayers.removeAll();
     scene.imageryLayers.addImageryProvider(
@@ -154,6 +153,7 @@ var bldgLayer = new ol.layer.Vector({
         url: 'https://a.tile.openstreetmap.org/'
       })
     );
+*/
 
     // Enable 3D rendering
     ol3d.setEnabled(true);
