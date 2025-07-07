@@ -161,7 +161,7 @@ var bldgLayer = new ol.layer.Vector({
 
   
 
-
+/*
   // Add draw interaction on 2D map
   const draw = new ol.interaction.Draw({
     source: bldgSource,
@@ -169,6 +169,20 @@ var bldgLayer = new ol.layer.Vector({
   });
 
   map2d.addInteraction(draw);
+*/
+
+
+const selecting = new ol.interaction.Select();
+map2d.addInteraction(selecting);
+
+const editing = new ol.interaction.Modify({
+features: selecting.getFeatures()
+});
+map2d.addInteraction(editing);
+
+selecting.setActive(true);
+editing.setActive(true);
+
 
 
 // 4. Sync views between 2D and 3D
