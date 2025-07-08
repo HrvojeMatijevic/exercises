@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Cesium Minimal Tileset Example</title>
+  <script src="https://cdn.jsdelivr.net/npm/cesium@1.114.1/Build/Cesium/Cesium.js"></script>
+  <link href="https://cdn.jsdelivr.net/npm/cesium@1.114.1/Build/Cesium/Widgets/widgets.css" rel="stylesheet" />
+  <style>
+    #cesiumContainer {
+      width: 100vw; height: 100vh; margin: 0; padding: 0; overflow: hidden;
+    }
+  </style>
+</head>
+<body>
+  <div id="cesiumContainer"></div>
+
+  <script>
+    // Create the Cesium Viewer without terrain provider (no token needed)
+    const viewer = new Cesium.Viewer('cesiumContainer', {
+      terrainProvider: new Cesium.EllipsoidTerrainProvider(),
+      selectionIndicator: false,
+      infoBox: false
+    });
+
+    // Load tileset from URL using fromUrl()
+    Cesium.Cesium3DTileset.fromUrl('https://tilesm4.pages.dev/tileset.json')
+      .then(tileset => {
+        viewer.scene.primitives.add(tileset);
+
+        tileset.readyPromise.then(() => {
+          console.log('Tileset loaded!');
+          viewer.camera.flyToBoundingSphere(tileset.boundingSphere, { duration: 3 });
+        });
+
+        // Setup click handler for picking
+        const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+
+        handler.setInputAction(function (click) {
+          const pickedFeature = viewer.scene.pick(click.position);
+          if (pickedFeature && pickedFeature instanceof Cesium.Cesium3DTileFeature) {
+            const clusterId = pickedFeature.getProperty('intensity');
+            console.log('Picked cluster ID:', clusterId);
+          } else {
+            console.log('No point cloud feature picked at this location.');
+          }
+        }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+
+      })
+      .catch(error => {
+        console.error('Error loading tileset:', error);
+      });
+  </script>
+</body>
+</html>
