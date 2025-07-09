@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>OL-Cesium Side by Side for GitHub Pages</title>
+
+  <!-- OpenLayers 10.1.0 CSS -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@v10.1.0/ol.css" />
+  <!-- Cesium CSS -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/cesium@latest/Build/Cesium/Widgets/widgets.css" />
+
+
+<style>
+html, body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+.grid-container {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-gap: 20px;
+    height: 100vh
+}
+</style>
+
+
+
+<style>
+.topleft {
+  position: absolute;
+  top: 30px;
+  left: 75px;
+  font-size: 18px;
+  text-align: left;
+  background-color: rgba(200,200,200,.9);
+  width: 150px;
+  display: inline-block;
+  border-radius: 5px;
+  overflow: auto; 
+  z-index: 1000;
+}
+</style>
+
+
+<style>
+.topcenter {
+  position: absolute;
+  top: 30px;
+  left: 400px;
+  font-size: 18px;
+  text-align: left;
+  z-index: 1;
+  background-color: rgba(200,200,200,.9);
+  width: 130px;
+  display: inline-block;
+  border-radius: 5px;
+  overflow: auto; 
+}
+</style>
+
+<style>
+.topright {
+  position: absolute;
+  top: 30px;
+  right: 640px;
+  font-size: 18px;
+  text-align: left;
+  z-index: 2000;
+  background-color: rgba(200,200,200,.9);
+  width: 100px;
+  display: inline-block;
+  border-radius: 5px;
+  overflow: auto; 
+}
+</style>
+
+
+  </head>
+<body>
+  
+
+
+<div class="grid-container">
+    <div id="map2d"></div>
+    <div id="map3d1"></div>
+</div>
+
+
+<div id="map3d2" style="
+    	position: absolute;
+    	top: 0;
+    	right: 0;
+    	width: 25%;
+    	height: 35%;
+    	border: 2px solid #fff;
+    	z-index: 1000;
+  	">
+</div>
+
+
+
+<div class="topleft"> 
+	 Raster<input type="checkbox" id="rasterlayer" checked="true">
+	 <br>Base vector<input type="checkbox" id="basevector" checked="true">
+	 <br>Edit vector<input type="checkbox" id="editvector" checked="true">
+</div> 
+
+
+
+<div class="topcenter">  	
+  	<select class="podloga" name="podloga">
+	<option value="none">Base map</option>
+	<option value="dgudof">Orthophoto</option>
+   	 <option value="osm">OSM</option>
+  	</select>
+
+	<br><align="left"><button id="editpoly" class="code">edit</button>
+	<br><align="left"><button id="drawpoly" class="code">draw</button>
+	<br><button id="saveas" >Save</button>
+</div>
+
+
+<div class="topright">  	
+  	
+	<button id="toggleOrtho1" >
+  	Switch 1 Ortho
+	</button>
+	<br>
+	<button id="toggleOrtho2" >
+  	Switch 2 Ortho
+	</button> 
+</div>
+
+
+
+  <!-- OpenLayers 10.1.0 -->
+  <script src="https://cdn.jsdelivr.net/npm/ol@v10.1.0/dist/ol.js"></script>
+  <!-- CesiumJS -->
+  <script src="https://cdn.jsdelivr.net/npm/cesium@latest/Build/Cesium/Cesium.js"></script>
+  <!-- OL-Cesium 2.17.0 -->
+  <script src="https://cdn.jsdelivr.net/npm/ol-cesium@2.17.0/dist/olcesium.min.js"></script>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.5.0/proj4.js"></script>
+  <script src=" https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js "></script>
+
+  <script>
+
+
+
+document.getElementById("rasterlayer").addEventListener("click", function (e) {
+  DOFLayer.setVisible (this.checked)
+});
+document.getElementById("basevector").addEventListener("click", function (e) {
+  baseLayer.setVisible (this.checked)
+});
+document.getElementById("editvector").addEventListener("click", function (e) {
+  editLayer.setVisible (this.checked)
+});
+
+document.getElementById("drawpoly").addEventListener("click", function (e) {
+  drawing.setActive (true)
+  editing.setActive (false)
+});
+document.getElementById("editpoly").addEventListener("click", function (e) {
+  drawing.setActive (false)
+  editing.setActive (true)
+  selecting.setActive (true)
+});
+
+document.getElementById("saveas").addEventListener("click", function (e) {
+  saveFeatures(editSource)
+});
+
+
+
+// *********************** D&D *******************
+
+var dragAndDropInteraction = new ol.interaction.DragAndDrop({
+       	 formatConstructors: [
+       	   ol.format.GPX,
+       	   ol.format.GeoJSON,
+       	   ol.format.IGC,
+       	   ol.format.KML,
+       	   ol.format.TopoJSON
+       	 ]
+	}); 
+
+dragAndDropInteraction.on('addfeatures', function(event) {
+	editSource.addFeatures(event.features);
+	map2d.getView().fit(editSource.getExtent())
+ });
+
+
+// *********************** Save GeoJSON *******************
+
+
+
+function saveFeatures(sourceIn){
+	var gjsonFormat = new ol.format["GeoJSON"]();	
+	var geoJsonFeature = gjsonFormat.writeFeatures(sourceIn.getFeatures());
+	var blob = new Blob([geoJsonFeature], {type: "text/plain;charset=utf-8"});
+    	window.saveAs(blob, "footprints.geojson");
+}
+
+
+
+
+let isOrthographic = false;
+
+
+
+    // IMPORTANT: Tell Cesium where to find its assets (workers, widgets, etc.)
+    window.CESIUM_BASE_URL = 'https://cdn.jsdelivr.net/npm/cesium@latest/Build/Cesium/';
+
+    // Disable Cesium Ion (no token needed)
+    Cesium.Ion.defaultAccessToken = undefined;
+
+ proj4.defs('EPSG:3765','+proj=tmerc +lat_0=0 +lon_0=16.5 +k=0.9999 +x_0=500000 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs');
+ ol.proj.proj4.register(proj4);
+ var htrs96 = ol.proj.get('EPSG:3765');
+
+ const OSMLayer = new ol.layer.Tile({
+            source: new ol.source.OSM()
+        });
+
+
+ var DOFLayer =  new ol.layer.Tile({
+            title: 'DOF 2019/20',
+            visible: true,
+            source: new ol.source.TileWMS({
+                url: 'https://geoportal.dgu.hr/services/inspire/orthophoto_2019_2020/wms',
+                params: {'LAYERS': 'OI.OrthoimageCoverage', 'TILED': true},
+		attributions: `<a href="https://geoportal.dgu.hr/#/menu/podaci-i-servisi">Geoportal Državne geodetske uprave</a>`
+            })
+        });
+
+
+// ****************** Editable vector source/layer ******************
+
+const editStyle = new ol.style.Style({
+  //fill: new ol.style.Fill({
+  //  color: '#eeeeee',
+  //}),
+  stroke: new ol.style.Stroke({
+    //color: 'rgba(0, 0, 0, 0.7)',
+    color: "green",
+    width: 4,
+  }),
+});
+
+  const editSource = new ol.source.Vector();
+
+  const editLayer = new ol.layer.Vector({
+    source: editSource,
+    style: editStyle
+  });
+
+
+
+// ****************** Base vector source/layer ******************
+const baseStyle = new ol.style.Style({
+  //fill: new ol.style.Fill({
+  //  color: '#eeeeee',
+  //}),
+  stroke: new ol.style.Stroke({
+    //color: 'rgba(0, 0, 0, 0.7)',
+    color: "red",
+    width: 4,
+  }),
+});
+
+var baseSource = new ol.source.Vector({
+        format: new ol.format.GeoJSON(),
+        url: 'https://hrvojematijevic.github.io/exercises/resources/makarska_zgrade.geojson'
+});
+
+var baseLayer = new ol.layer.Vector({
+    source: baseSource,
+    style: baseStyle
+});
+
+
+// END base layer
+
+
+
+    // 1. 2D OpenLayers map
+    const map2d = new ol.Map({
+      target: 'map2d',
+      layers: [DOFLayer, baseLayer, editLayer],
+	view: new ol.View({
+                projection: htrs96,
+                center: [476200, 5046300],
+                zoom: 10,
+         }),
+
+    });
+
+
+
+    // 2. OL map for Cesium (3D)
+    const map3d1 = new ol.Map({
+      target: 'map3d1',
+      layers: [baseLayer, editLayer],
+        view: new ol.View({
+                projection: htrs96,
+                center: [476200, 5046300],
+                zoom: 10,
+         }),
+      
+    });
+
+    // 2.1 OL map for Cesium (3D)
+    const map3d2 = new ol.Map({
+      target: 'map3d2',
+      layers: [baseLayer, editLayer],
+        view: new ol.View({
+                projection: htrs96,
+                center: [476200, 5046300],
+                zoom: 10,
+         }),
+      
+    });
+
+
+    // 3. Setup ol-cesium with the 3D OL map
+    const ol3d1 = new olcs.OLCesium({ map: map3d1 });
+    const scene1 = ol3d1.getCesiumScene();
+    const camera1 = scene1.camera;
+
+    scene1.requestRenderMode = false; // Ensure Cesium renders continuously
+
+
+    // 3. Setup ol-cesium with the 3D OL map
+    const ol3d2 = new olcs.OLCesium({ map: map3d2 });
+    const scene2 = ol3d2.getCesiumScene();
+    const camera2 = scene2.camera;
+
+    scene2.requestRenderMode = false; // Ensure Cesium renders continuously
+
+
+/*
+    // Use OpenStreetMap imagery for Cesium (no Ion)
+    scene.imageryLayers.removeAll();
+    scene.imageryLayers.addImageryProvider(
+      new Cesium.OpenStreetMapImageryProvider({
+        url: 'https://a.tile.openstreetmap.org/'
+      })
+    );
+*/
+
+    // Enable 3D rendering
+    ol3d1.setEnabled(true);
+
+    // Enable 3D rendering
+    ol3d2.setEnabled(true);
+
+  
+
+
+  // Add draw interaction on 2D map
+  const drawing = new ol.interaction.Draw({
+    source: editSource,
+    type: 'Polygon', // You can change this to 'Point', 'LineString', etc.
+  });
+
+  map2d.addInteraction(drawing);
+  drawing.setActive (false)
+
+
+  const selecting = new ol.interaction.Select();
+  map2d.addInteraction(selecting);
+  selecting.setActive(true);
+
+  const editing = new ol.interaction.Modify({
+	features: selecting.getFeatures()
+  });
+  map2d.addInteraction(editing);
+  editing.setActive (false)
+
+
+
+
+// ********************* 2d/3d syncing *********************
+
+
+// 4. Sync views between 2D and 3D
+    let syncing = false;
+
+    function syncViews(fromMap, toMap) {
+      if (syncing) return;
+      syncing = true;
+
+      const view = fromMap.getView();
+      const center = view.getCenter();
+      const zoom = view.getZoom();
+      const rotation = view.getRotation();
+
+      const toView = toMap.getView();
+      toView.setCenter(center);
+      toView.setZoom(zoom);
+      toView.setRotation(rotation);
+
+      syncing = false;
+    }
+
+
+    // Sync 2D → 3D
+    map2d.getView().on('change:center', () => syncViews(map2d, map3d1));
+    map2d.getView().on('change:resolution', () => syncViews(map2d, map3d1));
+    map2d.getView().on('change:rotation', () => syncViews(map2d, map3d1));
+
+    // Sync 3D → 2D
+    map3d1.getView().on('change:center', () => syncViews(map3d1, map2d));
+    map3d1.getView().on('change:resolution', () => syncViews(map3d1, map2d));
+    map3d1.getView().on('change:rotation', () => syncViews(map3d1, map2d));
+
+
+    // Sync 2D → 3D Ortho
+    map2d.getView().on('change:center', () => syncViews(map2d, map3d2));
+    map2d.getView().on('change:resolution', () => syncViews(map2d, map3d2));
+    map2d.getView().on('change:rotation', () => syncViews(map2d, map3d2));
+
+
+
+// ********************* Loading of PCD tileset into 3d viewers *********************
+
+async function loadTilesetIntoScene(scene) {
+  try {
+    //const tileset = await Cesium.Cesium3DTileset.fromUrl('https://tilesetc3.pages.dev/tileset.json');
+    const tileset = await Cesium.Cesium3DTileset.fromUrl('https://tilesm4.pages.dev/tileset.json');
+
+    tileset.style = new Cesium.Cesium3DTileStyle({
+      pointSize: 3
+    });
+
+    scene.primitives.add(tileset);
+
+    scene.camera.flyToBoundingSphere(tileset.boundingSphere, { duration: 2 });
+  } catch (error) {
+    console.error('Failed to load 3D Tileset:', error);
+  }
+}
+
+loadTilesetIntoScene(scene1);      // First viewer
+loadTilesetIntoScene(scene2);  // Second (ortho) viewer
+
+
+// ********************* Ortho/perspective toggling for 3d viewers *********************
+
+function toggleOrthoForScene(scene, isOrtho, centerLonLat = null) {
+  const camera = scene.camera;
+
+  // Optional: use a provided center or current camera center
+  let cartoPos;
+  if (centerLonLat) {
+    const cartoCenter = Cesium.Cartographic.fromDegrees(centerLonLat[0], centerLonLat[1]);
+    cartoPos = Cesium.Cartesian3.fromRadians(cartoCenter.longitude, cartoCenter.latitude, 2000);
+  } else {
+    cartoPos = camera.positionWC;
+  }
+
+  if (isOrtho) {
+    camera.setView({
+      destination: cartoPos,
+      orientation: {
+        heading: 0,
+        pitch: Cesium.Math.toRadians(-90),
+        roll: 0
+      }
+    });
+
+    camera.frustum.fov = Cesium.Math.toRadians(5);
+    scene.screenSpaceCameraController.enableTilt = false;
+    scene.screenSpaceCameraController.enableRotate = false;
+    scene.screenSpaceCameraController.enableZoom = false;
+    scene.screenSpaceCameraController.enableLook = false;
+
+    console.log("Cesium in ortho-lookalike mode");
+  } else {
+    camera.frustum.fov = Cesium.Math.toRadians(60);
+
+    scene.screenSpaceCameraController.enableTilt = true;
+    scene.screenSpaceCameraController.enableRotate = true;
+    scene.screenSpaceCameraController.enableZoom = true;
+    scene.screenSpaceCameraController.enableLook = true;
+
+    console.log("Cesium back in perspective mode");
+  }
+
+  scene.requestRender();
+}
+
+
+let isOrtho1 = false;
+let isOrtho2 = false;
+
+document.getElementById("toggleOrtho1").addEventListener("click", () => {
+  isOrtho1 = !isOrtho1;
+  const center = ol.proj.toLonLat(map3d1.getView().getCenter(), map3d1.getView().getProjection());
+  toggleOrthoForScene(scene1, isOrtho1, center);
+});
+
+document.getElementById("toggleOrtho2").addEventListener("click", () => {
+  isOrtho2 = !isOrtho2;
+  const center = ol.proj.toLonLat(map3d2.getView().getCenter(), map3d2.getView().getProjection());
+  toggleOrthoForScene(scene2, isOrtho2, center);
+});
+
+
+
+
+
+
+
+
+  </script>
+</body>
+</html>
