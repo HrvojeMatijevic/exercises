@@ -1,0 +1,753 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+
+<meta charset="utf-8" />
+<title>Attractor-aware B-spline Predictor with Global Attractors</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@v10.1.0/dist/ol.css" />
+<style>
+  html, body {
+    height: 100%;
+    margin: 0;
+    font-family: system-ui, Segoe UI, Roboto, Arial;
+    display: flex;
+    flex-direction: column;
+  }
+
+  #controls {
+    display: flex;
+    flex-wrap: wrap;              /* allow wrapping on small screens */
+    align-items: center;
+    gap: 8px;
+    padding: 8px;
+    background: #f4f4f4;
+    border-bottom: 1px solid #ddd;
+  }
+
+  .btn {
+    padding: 8px 12px;
+    border-radius: 6px;
+    border: 1px solid #ccc;
+    background: white;
+    cursor: pointer;
+    font-size: 14px;
+    flex-shrink: 0;              /* prevents buttons from shrinking too small */
+  }
+
+  label.btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    cursor: pointer;
+  }
+
+  input[type="file"] {
+    display: none;
+  }
+
+  .btn[disabled] {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  #map {
+    flex: 1;                      /* fill all remaining space */
+    width: 100%;
+  }
+
+  /* prevent OL overlay layers from blocking map clicks */
+  .ol-attribution, .ol-overlaycontainer-stopevent { pointer-events: none; }
+  .ol-attribution button, .ol-attribution ul { pointer-events: auto; }
+</style>
+</head>
+
+<body>
+  <div id="controls">
+    <button id="clearPts" class="btn">Clear Points</button>
+    <button id="clearAttr" class="btn">Clear Attractors</button>
+    <button id="drawAttr" class="btn">Add Attractor</button>
+    <button id="exportAttr" class="btn">Export Attractors</button>
+    <label class="btn">Import Attractors
+      <input type="file" id="importAttr" accept=".geojson,application/json" />
+    </label>
+    <button id="generateGlobal" class="btn">Generate Global Attractors</button>
+
+    <!-- GPS controls -->
+    <button id="toggleGps" class="btn">Enable GPS</button>
+    <button id="panToLocation" class="btn" disabled>Pan to My Location</button>
+  </div>
+
+  <div id="map"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/ol@v10.1.0/dist/ol.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsts@2.3.0/dist/jsts.min.js"></script>
+<script>
+(function(){
+  
+  // Attractor config
+  const ATTR_FALLOFF = 2.0;
+  
+  const MAX_CONTROL = 5;
+  const MIN_GPS_STEP = 30; // meters
+  const GPS_PAN_ANIM_MS = 300;
+  const EPS = 1e-9;
+
+  // Global attractor clustering distance (meters)
+  const GLOBAL_ATTR_CLUSTER_DIST = 400;
+  const GLOBAL_ATTR_STRENGTH_FACTOR = 8.0;    // multiplier for global attractor pull
+  const GLOBAL_ATTR_LOCAL_RADIUS = 300;       // map units; ignore global if local within this radius
+
+  // Swirl prevention
+  const CURVATURE_R_MIN = 10.0;         // minimum radius of curvature in map units (tweak)
+  const NEAR_ATTRACTOR_RADIUS = 30.0;   // when to apply stronger damping/taper (map units)
+  const NEAR_DAMPING_MULT = 3.0;        // multiply damping near attractor
+  //const NEAR_ATTRACTOR_TAPER = 0.4;     // multiply attractor force when close (0..1)
+  const NEAR_ATTRACTOR_TAPER = 1.0;     // multiply attractor force when close (0..1)
+
+  const CAPTURE_RADIUS = 10.0; // distance (in map units) to stop predicting near an attractor
+
+
+
+  // ---------- OL setup ----------
+  const { Map, View } = ol;
+  const { Tile: TileLayer, Vector: VectorLayer } = ol.layer;
+  const { OSM, Vector: VectorSource } = ol.source;
+  const { Draw, DragAndDrop } = ol.interaction;
+  const { LineString, Point, Polygon } = ol.geom;
+  const { Feature } = ol;
+  const { Circle: CircleStyle, Fill, Stroke, Style } = ol.style;
+  const { proj } = ol;
+  const { GeoJSON } = ol.format;
+
+/*
+  const map = new Map({
+    target: 'map',
+    layers: [ new TileLayer({ source: new OSM() }) ],
+    view: new View({ center: [0,0], zoom: 2 })
+  });
+*/
+
+const map = new ol.Map({
+  target: 'map',
+  controls: [], // disables all built-in controls, including attributions
+  layers: [
+    new ol.layer.Tile({
+      source: new ol.source.OSM({
+        attributions: [], // removes text attribution strings
+      }),
+    }),
+  ],
+  view: new ol.View({
+    center: [0, 0],
+    zoom: 2,
+  }),
+});
+
+
+  const pointsSource = new VectorSource();
+  const curveSource = new VectorSource();
+  const attractorSource = new VectorSource({
+        format: new ol.format.GeoJSON(),
+        url: 'https://hrvojematijevic.github.io/exercises/resources/attractors.geojson'
+});
+  
+  const globalSource = new VectorSource();
+
+  const pointsLayer = new VectorLayer({
+    source: pointsSource,
+    style: new Style({
+      image: new CircleStyle({ radius:6, fill: new Fill({color:'#e63946'}), stroke: new Stroke({color:'#fff', width:2})})
+    })
+  });
+  const curveLayer = new VectorLayer({ source: curveSource });
+  const attractorLayer = new VectorLayer({
+    source: attractorSource,
+    style: new Style({
+      fill: new Fill({ color: 'rgba(0,150,0,0.12)' }),
+      stroke: new Stroke({ color: 'green', width: 2 })
+    })
+  });
+  const globalLayer = new VectorLayer({
+    source: globalSource,
+    style: new Style({
+      fill: new Fill({ color: 'rgba(150,0,150,0.12)' }),
+      stroke: new Stroke({ color: 'purple', width: 2 })
+    })
+  });
+
+  map.addLayer(curveLayer);
+  map.addLayer(pointsLayer);
+  map.addLayer(attractorLayer);
+  map.addLayer(globalLayer);
+  
+
+  const realStyle = new Style({ stroke: new Stroke({ color: '#999', width: 2, lineDash:[6,4] }) });
+  const predStyle = new Style({ stroke: new Stroke({ color: '#1d3557', width: 4 }) });
+
+  // ---------- helpers (B-spline & geometry) ----------
+  function makeClampedKnots(m, degree){
+    const klen = m + degree + 2;
+    const knots = new Array(klen);
+    const inner = klen - 2*(degree+1);
+    for(let i=0;i<=degree;i++) knots[i]=0;
+    for(let j=1;j<=inner;j++) knots[degree+j]=j/(inner+1);
+    for(let i=klen-degree-1;i<klen;i++) knots[i]=1;
+    return knots;
+  }
+  function basisCoxDeBoor(i,k,u,knots){
+    if(k===0) return (knots[i] <= u && u < knots[i+1]) ? 1 : 0;
+    let t1=0, t2=0;
+    const d1 = knots[i+k] - knots[i], d2 = knots[i+k+1] - knots[i+1];
+    if(d1) t1 = ((u - knots[i]) / d1) * basisCoxDeBoor(i,k-1,u,knots);
+    if(d2) t2 = ((knots[i+k+1] - u) / d2) * basisCoxDeBoor(i+1,k-1,u,knots);
+    return t1 + t2;
+  }
+  function evaluateBSplineAt(ctrl, deg, knots, u){
+    const m = ctrl.length - 1;
+    if(u >= 1) return [ctrl[m][0], ctrl[m][1]];
+    let x=0, y=0;
+    for(let i=0;i<=m;i++){
+      const b = basisCoxDeBoor(i, deg, u, knots);
+      x += b * ctrl[i][0];
+      y += b * ctrl[i][1];
+    }
+    return [x,y];
+  }
+  function pointToLineDistance(p1,p2,p3){
+    const x0=p2[0], y0=p2[1];
+    const x1=p1[0], y1=p1[1];
+    const x2=p3[0], y2=p3[1];
+    const num = Math.abs((x2-x1)*(y1-y0) - (x1-x0)*(y2-y1));
+    const den = Math.hypot(x2-x1, y2-y1) || 1;
+    return num/den;
+  }
+  function angleBetweenSegments(p1,p2,p3){
+    const v1x = p2[0]-p1[0], v1y = p2[1]-p1[1];
+    const v2x = p3[0]-p2[0], v2y = p3[1]-p2[1];
+    const l1 = Math.hypot(v1x,v1y)||1, l2 = Math.hypot(v2x,v2y)||1;
+    let dot = (v1x*v2x + v1y*v2y) / (l1*l2);
+    dot = Math.max(-1, Math.min(1, dot));
+    return Math.acos(dot);
+  }
+
+ 
+
+
+
+
+
+
+
+// ---------- physics predictor helpers ----------
+function clampTurn(vel, desired, maxAngleRad) {
+  const vmag = Math.hypot(vel[0], vel[1]) || 1e-9;
+  let vx = vel[0] / vmag, vy = vel[1] / vmag;
+  let dx = desired[0], dy = desired[1];
+  const dmag = Math.hypot(dx, dy) || 1e-9;
+  dx /= dmag; dy /= dmag;
+
+  let dot = vx * dx + vy * dy;
+  dot = Math.max(-1, Math.min(1, dot));
+  const ang = Math.acos(dot);
+
+  if (ang <= maxAngleRad) return [dx, dy];
+
+  const sign = (vx * dy - vy * dx) > 0 ? 1 : -1;
+  const cosA = Math.cos(maxAngleRad);
+  const sinA = Math.sin(maxAngleRad * sign);
+  return [vx * cosA - vy * sinA, vx * sinA + vy * cosA];
+}
+
+// ---------- compute attractor raw vector (local + global exclusivity) ----------
+function computeAttractorRawWithGlobal(point) {
+  // Returns a raw vector [vx, vy] representing the sum of attractor pulls.
+  // Behavior:
+  //  - If any local attractor is within GLOBAL_ATTR_LOCAL_RADIUS, only locals pull.
+  //  - Otherwise globals (convex hulls in globalSource) pull.
+  let vx = 0, vy = 0;
+  const localFeats = attractorSource.getFeatures();
+
+  // ---------- Local attractor pull ----------
+  let localNearby = false;
+  for (const f of localFeats) {
+    const geom = f.getGeometry();
+    if (!geom) continue;
+
+    const ip = geom.getInteriorPoint ? geom.getInteriorPoint() : geom.getClosestPoint(point);
+    const centroid = ip.getCoordinates ? ip.getCoordinates() : ip;
+
+    const dx = centroid[0] - point[0];
+    const dy = centroid[1] - point[1];
+    const dist = Math.hypot(dx, dy) + EPS;
+
+    if (dist <= GLOBAL_ATTR_LOCAL_RADIUS) localNearby = true;
+
+    // unified area-based weight (local)
+    const area = Math.abs(geom.getArea ? geom.getArea() : 0);
+    const weight = area / Math.pow(dist, ATTR_FALLOFF);
+    vx += (dx / dist) * weight;
+    vy += (dy / dist) * weight;
+  }
+
+  // ---------- Global attractor pull (only if no nearby local attractor) ----------
+  if (!localNearby) {
+    const globalFeats = globalSource.getFeatures();
+    for (const g of globalFeats) {
+      const geom = g.getGeometry();
+      if (!geom) continue;
+
+      const ip = geom.getInteriorPoint ? geom.getInteriorPoint() : geom.getClosestPoint(point);
+      const centroid = ip.getCoordinates ? ip.getCoordinates() : ip;
+
+      const dx = centroid[0] - point[0];
+      const dy = centroid[1] - point[1];
+      const dist = Math.hypot(dx, dy) + EPS;
+
+      // unified area-based weight (global uses same scale)
+      //const area = Math.abs(geom.getArea ? geom.getArea() : 0);
+      const area = Math.abs(geom.getArea ? geom.getArea() : 0) *GLOBAL_ATTR_STRENGTH_FACTOR
+      const weight = area / Math.pow(dist, ATTR_FALLOFF);
+      vx += (dx / dist) * weight;
+      vy += (dy / dist) * weight;
+    }
+  }
+
+  return [vx, vy];
+}
+
+// ---------- shaped attractor force (keeps taper for swirl prevention) ----------
+function shapedAttractorForce(pos, vel, opts = {}) {
+  // opts:
+  //  attractorScale - optional runtime multiplier (kept for compatibility, default 1.0)
+  //  lateralResponse - how much lateral component is allowed
+  const attractorScale = (opts.attractorScale !== undefined) ? opts.attractorScale : 1.0;
+  const lateralResponse = (opts.lateralResponse !== undefined) ? opts.lateralResponse : 0.6;
+
+  // get raw force vector (local/global logic inside)
+  const F = computeAttractorRawWithGlobal(pos);
+  const fx = F[0], fy = F[1];
+  const mag = Math.hypot(fx, fy);
+  if (mag < 1e-9) return [0, 0];
+
+  // swirl-stabilizing taper (keep as empirical stabilizer)
+  const dist = mag;
+  const taper = 1 / (1 + dist * 0.25);
+  const limitedMag = mag * taper;
+
+  // normalized attractor direction
+  const ax = fx / mag, ay = fy / mag;
+
+  // if practically zero velocity, return attractor-directed vector
+  const vmag = Math.hypot(vel[0], vel[1]);
+  if (vmag < 1e-6) return [ax * limitedMag * attractorScale, ay * limitedMag * attractorScale];
+
+  // split into longitudinal + lateral components relative to current velocity
+  const ux = vel[0] / vmag, uy = vel[1] / vmag;
+  const longScalar = ax * ux + ay * uy;
+  const longX = ux * longScalar * limitedMag;
+  const longY = uy * longScalar * limitedMag;
+
+  const latX = ax * limitedMag - longX;
+  const latY = ay * limitedMag - longY;
+
+  // scale lateral response based on walking speed (so lateral is weaker at very low speed)
+  const speedFactor = 0.3 + 0.7 * Math.tanh(vmag * 0.2); // 0.3..1.0
+  const latScale = lateralResponse * speedFactor;
+
+  // cap lateral relative to longitudinal magnitude
+  const longMag = Math.hypot(longX, longY);
+  const latMag = Math.hypot(latX, latY);
+  let finalLatScale = latScale;
+  if (latMag > 1e-6 && longMag > 1e-6) {
+    const allowedLat = longMag * 2.0;
+    if (latMag * latScale > allowedLat) finalLatScale = allowedLat / latMag;
+  }
+
+  return [(longX + latX * finalLatScale) * attractorScale, (longY + latY * finalLatScale) * attractorScale];
+}
+
+// ---------- Prediction: inertia + attractors (unchanged integration but uses unified force) ----------
+function predictTrajectory(controlPts, {
+  steps = 120,
+  dt = 1.0,
+  damping = 0.05,
+  mass = 1.0,
+  maxTurnDeg = 10,
+  attractorScale = 1.0,
+  lateralResponse = 0.6
+} = {}) {
+  if (controlPts.length < 2) return { realCoords: controlPts.slice(), predCoords: [] };
+
+  const n = controlPts.length;
+  const pos = controlPts[n - 1].slice();
+  let vel = [
+    controlPts[n - 1][0] - controlPts[n - 2][0],
+    controlPts[n - 1][1] - controlPts[n - 2][1]
+  ];
+
+
+  const predCoords = [];
+  const maxAngle = (maxTurnDeg * Math.PI) / 180;
+  const modeFlags = []; 
+
+
+  for (let i = 0; i < steps; i++) {
+    // detect proximity (local or global)
+    let nearAny = false;
+    let captured = false;
+    let inGlobal = true;
+    const allFeats = attractorSource.getFeatures().concat(globalSource && globalSource.getFeatures ? globalSource.getFeatures() : []);
+    for (const f of allFeats) {
+      const g = f.getGeometry();
+      if (!g) continue;
+      const c = g.getInteriorPoint ? g.getInteriorPoint().getCoordinates() : g.getClosestPoint(pos);
+      const d = Math.hypot(c[0] - pos[0], c[1] - pos[1]);
+      if (d <= NEAR_ATTRACTOR_RADIUS) nearAny = true;
+      if (d <= CAPTURE_RADIUS) captured = true;
+      if (d <= GLOBAL_ATTR_LOCAL_RADIUS) inGlobal = false;
+    }
+
+    // terminate if captured
+    if (captured) {
+      predCoords.push(pos.slice());
+      modeFlags.push(inGlobal ? 'global' : 'local');
+      break;
+    }
+
+    // proximity-based damping/taper
+    let dampingHere = damping;
+    let attractorLocalScale = attractorScale;
+    if (nearAny) {
+      dampingHere *= NEAR_DAMPING_MULT;
+      // NEAR_ATTRACTOR_TAPER was removed/neutralized in cleaning - keep attractorLocalScale unmodified
+    }
+
+    // compute attractor force (uses unified area scaling)
+    const force = shapedAttractorForce(pos, vel, { attractorScale: attractorLocalScale, lateralResponse });
+
+    const accel = [force[0] / mass - dampingHere * vel[0], force[1] / mass - dampingHere * vel[1]];
+
+    // curvature cap (lateral acceleration limit)
+    const vmag = Math.hypot(vel[0], vel[1]);
+    if (vmag > 1e-6) {
+      const tx = vel[0] / vmag, ty = vel[1] / vmag;
+      const aDotT = accel[0] * tx + accel[1] * ty;
+      const tangX = tx * aDotT, tangY = ty * aDotT;
+      let normX = accel[0] - tangX, normY = accel[1] - tangY;
+      const normMag = Math.hypot(normX, normY);
+      const aNormMax = (vmag * vmag) / Math.max(1e-6, CURVATURE_R_MIN);
+      if (normMag > aNormMax) {
+        const scale = aNormMax / normMag;
+        normX *= scale; normY *= scale;
+        accel[0] = tangX + normX;
+        accel[1] = tangY + normY;
+      }
+    }
+
+    // integrate with clamped turn
+    const candVel = [vel[0] + accel[0] * dt, vel[1] + accel[1] * dt];
+    const clampedDir = clampTurn(vel, candVel, maxAngle);
+    const candSpeed = Math.hypot(candVel[0], candVel[1]) || 1e-9;
+    vel = [clampedDir[0] * candSpeed, clampedDir[1] * candSpeed];
+
+    pos[0] += vel[0] * dt;
+    pos[1] += vel[1] * dt;
+    predCoords.push(pos.slice());
+    modeFlags.push(inGlobal ? 'global' : 'local');
+  }
+
+  return { realCoords: controlPts.slice(), predCoords, modeFlags };
+}
+
+// ---------- Global Attractor Generation (clustered + convex hull) ----------
+// clusters locals using single-linkage flood-fill and writes convex hull per cluster to globalSource
+function generateGlobalAttractors({
+  clusterRadius = GLOBAL_ATTR_CLUSTER_DIST
+} = {}) {
+  globalSource.clear();
+  const feats = attractorSource.getFeatures();
+  if (feats.length === 0) return;
+
+  // collect centroids
+  const attractors = [];
+  for (const f of feats) {
+    const geom = f.getGeometry();
+    if (!geom) continue;
+    const ip = geom.getInteriorPoint ? geom.getInteriorPoint().getCoordinates() : geom.getClosestPoint([0, 0]);
+    attractors.push({ feature: f, centroid: ip });
+  }
+  if (attractors.length === 0) return;
+
+  // single-linkage clustering via flood-fill (transitive)
+  const visited = new Array(attractors.length).fill(false);
+  const clusters = [];
+
+  function floodFill(idx, cluster) {
+    visited[idx] = true;
+    cluster.push(attractors[idx]);
+    const ci = attractors[idx].centroid;
+    for (let j = 0; j < attractors.length; j++) {
+      if (visited[j]) continue;
+      const cj = attractors[j].centroid;
+      const dist = Math.hypot(ci[0] - cj[0], ci[1] - cj[1]);
+      if (dist <= clusterRadius) floodFill(j, cluster);
+    }
+  }
+
+  for (let i = 0; i < attractors.length; i++) {
+    if (visited[i]) continue;
+    const cluster = [];
+    floodFill(i, cluster);
+    clusters.push(cluster);
+  }
+
+  // JSTS parser + geometry factory
+  const geometryFactory = new jsts.geom.GeometryFactory();
+  const parser = new jsts.io.OL3Parser();
+  parser.inject(
+    ol.geom.Point,
+    ol.geom.LineString,
+    ol.geom.LinearRing,
+    ol.geom.Polygon,
+    ol.geom.MultiPoint,
+    ol.geom.MultiLineString,
+    ol.geom.MultiPolygon
+  );
+  const geojsonWriter = new jsts.io.GeoJSONWriter();
+
+  for (const cluster of clusters) {
+    // union all member polygons (to form contiguous geometry to hull)
+    let unionGeom = null;
+    for (const { feature } of cluster) {
+      const geom = feature.getGeometry();
+      if (!geom) continue;
+      const jstsGeom = parser.read(geom);
+      if (!jstsGeom) continue;
+      unionGeom = unionGeom ? unionGeom.union(jstsGeom) : jstsGeom;
+    }
+    if (!unionGeom) continue;
+
+    // get coordinates and compute convex hull robustly
+    const coords = unionGeom.getCoordinates();
+    if (!coords || coords.length < 3) continue;
+    const hullCalc = new jsts.algorithm.ConvexHull(coords, geometryFactory);
+    const hull = hullCalc.getConvexHull();
+    if (!hull) continue;
+
+    // convert hull back to OL geometry and add to globalSource
+    const gj = geojsonWriter.write(hull);
+    let olGeom = null;
+    if (gj.type === "Polygon") olGeom = new ol.geom.Polygon(gj.coordinates);
+    else if (gj.type === "MultiPolygon") olGeom = new ol.geom.MultiPolygon(gj.coordinates);
+    if (olGeom) {
+      const feat = new ol.Feature(olGeom);
+      globalSource.addFeature(feat);
+    }
+  }
+
+  // redraw to reflect new globals
+  redrawAll();
+}
+
+
+
+
+function redrawAll() {
+  pointsSource.clear();
+  curveSource.clear();
+  if (allPoints.length === 0) return;
+
+  const controls = allPoints.slice(-MAX_CONTROL);
+  for (const p of controls)
+    pointsSource.addFeature(new Feature(new Point(p)));
+  if (controls.length < 2) return;
+
+  const { realCoords, predCoords, modeFlags } = predictTrajectory(controls, {
+    steps: 120,
+    dt: 0.75,
+    damping: 0.2,
+    mass: 0.5,
+    maxTurnDeg: 10,
+    attractorScale: 1.0,
+    lateralResponse: 0.6,
+  });
+
+  // --- draw real (input) curve ---
+  if (realCoords && realCoords.length > 1) {
+    const f = new Feature(new LineString(realCoords));
+    f.setStyle(realStyle);
+    curveSource.addFeature(f);
+  }
+
+  // --- draw predicted curve segmented by mode ---
+  if (predCoords && predCoords.length > 1 && modeFlags) {
+    const solidStyle = new ol.style.Style({
+      stroke: new ol.style.Stroke({
+        color: "rgba(255, 120, 0, 0.9)",
+        width: 4,
+      }),
+    });
+
+    const dashedStyle = new ol.style.Style({
+      stroke: new ol.style.Stroke({
+        color: "rgba(100, 150, 255, 0.9)",
+        width: 4,
+        lineDash: [8, 6],
+      }),
+    });
+
+    let segment = [predCoords[0]];
+    let currentMode = modeFlags[0];
+
+    for (let i = 1; i < predCoords.length; i++) {
+      if (modeFlags[i] !== currentMode) {
+        // flush current segment
+        const fSeg = new Feature(new LineString(segment));
+        fSeg.setStyle(currentMode === "global" ? dashedStyle : solidStyle);
+        curveSource.addFeature(fSeg);
+
+        // start new one
+        segment = [predCoords[i - 1]];
+        currentMode = modeFlags[i];
+      }
+      segment.push(predCoords[i]);
+    }
+
+    // flush last segment
+    if (segment.length > 1) {
+      const fSeg = new Feature(new LineString(segment));
+      fSeg.setStyle(currentMode === "global" ? dashedStyle : solidStyle);
+      curveSource.addFeature(fSeg);
+    }
+  }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+  // ---------- point storage ----------
+  let allPoints = [];
+  function onMapClick(evt){
+    allPoints.push(evt.coordinate.slice ? evt.coordinate.slice() : [evt.coordinate[0], evt.coordinate[1]]);
+    redrawAll();
+  }
+  map.on('singleclick', onMapClick);
+
+  // ---------- attractor drawing ----------
+  const drawAttr = new Draw({ source: attractorSource, type: 'Polygon' });
+  document.getElementById('drawAttr').addEventListener('click', ()=>{
+    map.addInteraction(drawAttr);
+    map.un('singleclick', onMapClick);
+    drawAttr.once('drawend', ()=>{
+      map.removeInteraction(drawAttr);
+      map.on('singleclick', onMapClick);
+      redrawAll();
+    });
+  });
+
+  // ---------- clear / export / import ----------
+  document.getElementById('clearPts').addEventListener('click', ()=>{ allPoints=[]; pointsSource.clear(); curveSource.clear(); });
+  document.getElementById('clearAttr').addEventListener('click', ()=>{ attractorSource.clear(); globalSource.clear(); });
+
+  document.getElementById('exportAttr').addEventListener('click', ()=> {
+    const feats = attractorSource.getFeatures().concat(globalSource.getFeatures());
+    const geojson = new GeoJSON().writeFeatures(feats, { featureProjection: map.getView().getProjection() });
+    const blob = new Blob([geojson], { type:'application/json' });
+    const url = URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='attractors.geojson'; a.click(); URL.revokeObjectURL(url);
+  });
+
+  document.getElementById('importAttr').addEventListener('change', (ev)=>{
+    const file = ev.target.files[0]; if(!file) return;
+    const reader = new FileReader();
+    reader.onload = e => {
+      try{
+        const feats = new GeoJSON().readFeatures(e.target.result, {
+          dataProjection: map.getView().getProjection(),
+          featureProjection: map.getView().getProjection()
+        });
+        attractorSource.clear(); attractorSource.addFeatures(feats); redrawAll();
+      } catch(err){ console.error(err); alert('Failed to import GeoJSON'); }
+    };
+    reader.readAsText(file); ev.target.value='';
+  });
+
+  const dnd = new DragAndDrop({ formatConstructors:[ol.format.GeoJSON] });
+  map.addInteraction(dnd);
+  dnd.on('addfeatures', evt=>{ attractorSource.addFeatures(evt.features); redrawAll(); });
+
+  // ---------- generate global ----------
+  document.getElementById('generateGlobal').addEventListener('click', generateGlobalAttractors);
+
+  // ---------- GPS handling ----------
+  let gpsWatchId=null, lastGpsLatLon=null, lastGpsMapCoord=null, gpsEnabled=false;
+  function haversineDistanceMeters(lat1,lon1,lat2,lon2){
+    const R=6371000;
+    const toRad=x=>x*Math.PI/180;
+    const dLat=toRad(lat2-lat1);
+    const dLon=toRad(lon2-lon1);
+    const a=Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
+    return 2*R*Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  }
+/*
+  function handleGpsPosition(pos){
+    const lat=pos.coords.latitude, lon=pos.coords.longitude;
+    const mapCoord = ol.proj.fromLonLat([lon,lat]);
+    let accept=false;
+    if(!lastGpsLatLon) accept=true;
+    else if(haversineDistanceMeters(lastGpsLatLon[0], lastGpsLatLon[1], lat,lon) >= MIN_GPS_STEP) accept=true;
+    lastGpsLatLon=[lat,lon]; lastGpsMapCoord=mapCoord;
+    document.getElementById('panToLocation').disabled=false;
+    if(accept){ allPoints.push(mapCoord); redrawAll(); if(gpsEnabled) map.getView().animate({ center: mapCoord, duration: GPS_PAN_ANIM_MS }); }
+  }
+*/
+function handleGpsPosition(pos) {
+  const lat = pos.coords.latitude, lon = pos.coords.longitude;
+  const mapCoord = ol.proj.fromLonLat([lon, lat]);
+
+  let accept = false;
+  if (!lastGpsLatLon) {
+    accept = true;
+  } else {
+    const d = haversineDistanceMeters(lastGpsLatLon[0], lastGpsLatLon[1], lat, lon);
+    if (d >= MIN_GPS_STEP) accept = true;
+  }
+
+  if (accept) {
+    lastGpsLatLon = [lat, lon];
+    lastGpsMapCoord = mapCoord;
+    document.getElementById('panToLocation').disabled = false;
+    allPoints.push(mapCoord);
+    redrawAll();
+    if (gpsEnabled) {
+      map.getView().animate({ center: mapCoord, duration: GPS_PAN_ANIM_MS });
+    }
+  }
+}
+
+  function startGps(){
+    if(!navigator.geolocation){ alert('Geolocation not available'); return; }
+    if(gpsWatchId!==null) return;
+    gpsEnabled=true; document.getElementById('toggleGps').textContent='Disable GPS';
+    gpsWatchId=navigator.geolocation.watchPosition(handleGpsPosition, err=>console.warn(err), { enableHighAccuracy:true, maximumAge:1000, timeout:10000 });
+  }
+  function stopGps(){ if(gpsWatchId!==null) navigator.geolocation.clearWatch(gpsWatchId); gpsWatchId=null; gpsEnabled=false; document.getElementById('toggleGps').textContent='Enable GPS'; }
+  document.getElementById('toggleGps').addEventListener('click', ()=>{ if(!gpsEnabled) startGps(); else stopGps(); });
+  document.getElementById('panToLocation').addEventListener('click', ()=>{ if(lastGpsMapCoord) map.getView().animate({ center:lastGpsMapCoord, duration:GPS_PAN_ANIM_MS }); else alert('No GPS position recorded yet'); });
+
+  window._predictor = { allPoints, attractorSource, globalSource, predictTrajectory, redrawAll, generateGlobalAttractors, startGps, stopGps };
+
+  redrawAll();
+})();
+</script>
+</body>
+</html>
