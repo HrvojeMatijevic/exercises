@@ -379,7 +379,7 @@ document.getElementById("trackBtn").onclick = function() {
     this.classList.remove("active");
   }
 };
-*/
+
 
 document.getElementById("trackBtn").onclick = function() {
 
@@ -411,6 +411,68 @@ document.getElementById("trackBtn").onclick = function() {
   }
 };
 
+*/
+
+let watchId = null;
+let lastCoord = null;
+
+document.getElementById("trackBtn").onclick = function() {
+
+  if (watchId === null) {
+
+    watchId = navigator.geolocation.watchPosition(
+      pos => {
+
+        const coord = updateGPS(pos);
+
+        // ---- movement threshold in meters ----
+        const MOVE_THRESHOLD = 3;  
+
+        if (!lastCoord) {
+          // first fix → center immediately
+          map.getView().animate({
+            center: coord,
+            duration: 300
+          });
+          lastCoord = coord;
+          return;
+        }
+
+        // compute distance in meters (EPSG:3765 is metric)
+        const dx = coord[0] - lastCoord[0];
+        const dy = coord[1] - lastCoord[1];
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
+        if (distance > MOVE_THRESHOLD) {
+
+          map.getView().animate({
+            center: coord,
+            duration: 300
+          });
+
+          lastCoord = coord;
+        }
+
+      },
+      () => showToast("LAst GPS positioning failed"),
+      {
+        enableHighAccuracy: true,
+        maximumAge: 0,
+        timeout: 10000
+      }
+    );
+
+    this.classList.add("active");
+
+  } else {
+
+    navigator.geolocation.clearWatch(watchId);
+    watchId = null;
+    lastCoord = null;  // reset
+    this.classList.remove("active");
+
+  }
+};
 
 
 
