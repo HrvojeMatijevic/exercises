@@ -27,6 +27,8 @@ html, body {
   height: 100%;
 }
 
+/* ===== Topbar ===== */
+
 .topbar {
   position: absolute;
   top: 10px;
@@ -45,6 +47,43 @@ html, body {
   padding: 6px;
 }
 
+/* ===== Bottom Sheet ===== */
+
+.bottom-sheet {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: white;
+  border-top-left-radius: 16px;
+  border-top-right-radius: 16px;
+  box-shadow: 0 -2px 10px rgba(0,0,0,0.2);
+  padding: 16px;
+  transform: translateY(100%);
+  transition: transform 0.3s ease;
+  z-index: 1000;
+}
+
+.bottom-sheet.active {
+  transform: translateY(0%);
+}
+
+.bottom-sheet input,
+.bottom-sheet select {
+  width: 100%;
+  padding: 8px;
+  margin-bottom: 10px;
+  font-size: 16px;
+}
+
+.bottom-sheet button {
+  padding: 10px;
+  font-size: 16px;
+  margin-right: 10px;
+}
+
+/* ===== Floating GPS Buttons ===== */
+
 .floating-btn {
   position: absolute;
   right: 15px;
@@ -58,17 +97,19 @@ html, body {
   z-index: 1000;
 }
 
-#locateBtn { bottom: 100px; }
-#trackBtn  { bottom: 40px; }
+#locateBtn { bottom: 120px; }
+#trackBtn  { bottom: 60px; }
 
 #trackBtn.active {
   background: #2196f3;
   color: white;
 }
 
+/* ===== Toast ===== */
+
 .toast {
   position: absolute;
-  bottom: 160px;
+  bottom: 180px;
   left: 50%;
   transform: translateX(-50%);
   background: rgba(0,0,0,0.8);
@@ -91,6 +132,13 @@ html, body {
   <select id="attributeSelect"></select>
 </div>
 
+<div class="bottom-sheet" id="editor">
+  <div id="currentValue"></div>
+  <div id="inputContainer"></div>
+  <button id="saveBtn">Save</button>
+  <button id="deleteBtn">Delete</button>
+</div>
+
 <button class="floating-btn" id="locateBtn">📍</button>
 <button class="floating-btn" id="trackBtn">🛰</button>
 
@@ -98,7 +146,7 @@ html, body {
 
 <script>
 
-// ================== PROJECTION ==================
+/* ================= PROJECTION ================= */
 
 proj4.defs('EPSG:3765',
   '+proj=tmerc +lat_0=0 +lon_0=16.5 +k=0.9999 +x_0=500000 +y_0=0 ' +
@@ -108,7 +156,7 @@ ol.proj.proj4.register(proj4);
 
 const htrs96 = ol.proj.get('EPSG:3765');
 
-// ================== CONFIG ==================
+/* ================= CONFIG ================= */
 
 const APP_CONFIG = {
   minEditZoom: 18,
@@ -123,48 +171,7 @@ const APP_CONFIG = {
   }
 };
 
-
-// ================== UI SETUP ==================
-
-const layerSelect = document.getElementById("layerSelect");
-const attributeSelect = document.getElementById("attributeSelect");
-
-function populateLayers() {
-  layerSelect.innerHTML = "";
-
-  for (let key in APP_CONFIG.layers) {
-    const opt = document.createElement("option");
-    opt.value = key;
-    opt.innerText = APP_CONFIG.layers[key].label;
-    layerSelect.appendChild(opt);
-  }
-
-  populateAttributes();
-}
-
-function populateAttributes() {
-  attributeSelect.innerHTML = "";
-
-  const layerKey = layerSelect.value;
-  const attrs = APP_CONFIG.layers[layerKey].attributes;
-
-  for (let key in attrs) {
-    const opt = document.createElement("option");
-    opt.value = key;
-    opt.innerText = key;
-    attributeSelect.appendChild(opt);
-  }
-}
-
-layerSelect.addEventListener("change", populateAttributes);
-
-// Initialize
-populateLayers();
-
-
-
-
-// ================== MAP ==================
+/* ================= MAP ================= */
 
 const DOF = new ol.layer.Tile({
   source: new ol.source.TileWMS({
@@ -181,12 +188,105 @@ const map = new ol.Map({
   layers: [DOF, gpsLayer],
   view: new ol.View({
     projection: htrs96,
-    center: [500000, 5070000], // Zagreb area
+    center: [500000, 5070000],
     zoom: 16
   })
 });
 
-// ================== GPS ==================
+/* ================= UI SETUP ================= */
+
+const layerSelect = document.getElementById("layerSelect");
+const attributeSelect = document.getElementById("attributeSelect");
+const editor = document.getElementById("editor");
+const inputContainer = document.getElementById("inputContainer");
+const currentValueDiv = document.getElementById("currentValue");
+
+function populateLayers() {
+  layerSelect.innerHTML = "";
+  for (let key in APP_CONFIG.layers) {
+    const opt = document.createElement("option");
+    opt.value = key;
+    opt.innerText = APP_CONFIG.layers[key].label;
+    layerSelect.appendChild(opt);
+  }
+  populateAttributes();
+}
+
+function populateAttributes() {
+  attributeSelect.innerHTML = "";
+  const layerKey = layerSelect.value;
+  const attrs = APP_CONFIG.layers[layerKey].attributes;
+  for (let key in attrs) {
+    const opt = document.createElement("option");
+    opt.value = key;
+    opt.innerText = key;
+    attributeSelect.appendChild(opt);
+  }
+}
+
+function buildInput() {
+  inputContainer.innerHTML = "";
+  const layerKey = layerSelect.value;
+  const attrKey = attributeSelect.value;
+  const attr = APP_CONFIG.layers[layerKey].attributes[attrKey];
+
+  if (attr.type === "number") {
+    const input = document.createElement("input");
+    input.type = "number";
+    inputContainer.appendChild(input);
+  }
+  else if (attr.type === "enum") {
+    const select = document.createElement("select");
+    attr.values.forEach(v => {
+      const opt = document.createElement("option");
+      opt.value = v;
+      opt.innerText = v;
+      select.appendChild(opt);
+    });
+    inputContainer.appendChild(select);
+  }
+}
+
+layerSelect.addEventListener("change", () => {
+  populateAttributes();
+  buildInput();
+});
+
+attributeSelect.addEventListener("change", buildInput);
+
+populateLayers();
+buildInput();
+
+/* ================= TAP HANDLER ================= */
+
+map.on("singleclick", function(evt) {
+
+  const zoom = map.getView().getZoom();
+
+  if (zoom < APP_CONFIG.minEditZoom) {
+    showToast("Zoom in to edit");
+    return;
+  }
+
+  currentValueDiv.innerHTML = "<strong>Current value:</strong> (placeholder)";
+  buildInput();
+  editor.classList.add("active");
+
+});
+
+/* ================= SAVE / DELETE ================= */
+
+document.getElementById("saveBtn").onclick = () => {
+  console.log("SAVE clicked");
+  editor.classList.remove("active");
+};
+
+document.getElementById("deleteBtn").onclick = () => {
+  console.log("DELETE clicked");
+  editor.classList.remove("active");
+};
+
+/* ================= GPS ================= */
 
 let watchId = null;
 
@@ -263,5 +363,6 @@ document.getElementById("trackBtn").onclick = function() {
 };
 
 </script>
+
 </body>
 </html>
