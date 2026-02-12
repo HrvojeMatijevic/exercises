@@ -123,6 +123,47 @@ const APP_CONFIG = {
   }
 };
 
+
+// ================== UI SETUP ==================
+
+const layerSelect = document.getElementById("layerSelect");
+const attributeSelect = document.getElementById("attributeSelect");
+
+function populateLayers() {
+  layerSelect.innerHTML = "";
+
+  for (let key in APP_CONFIG.layers) {
+    const opt = document.createElement("option");
+    opt.value = key;
+    opt.innerText = APP_CONFIG.layers[key].label;
+    layerSelect.appendChild(opt);
+  }
+
+  populateAttributes();
+}
+
+function populateAttributes() {
+  attributeSelect.innerHTML = "";
+
+  const layerKey = layerSelect.value;
+  const attrs = APP_CONFIG.layers[layerKey].attributes;
+
+  for (let key in attrs) {
+    const opt = document.createElement("option");
+    opt.value = key;
+    opt.innerText = key;
+    attributeSelect.appendChild(opt);
+  }
+}
+
+layerSelect.addEventListener("change", populateAttributes);
+
+// Initialize
+populateLayers();
+
+
+
+
 // ================== MAP ==================
 
 const DOF = new ol.layer.Tile({
