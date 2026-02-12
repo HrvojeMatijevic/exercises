@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+<title>Anchor LWW Prototype</title>
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@latest/ol.css">
+
+<style>
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  font-family: system-ui, sans-serif;
+}
+
+#map {
+  width: 100%;
+  height: 100%;
+}
+
+.topbar {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  right: 10px;
+  background: rgba(255,255,255,0.95);
+  padding: 8px;
+  border-radius: 10px;
+  display: flex;
+  gap: 8px;
+  z-index: 1000;
+}
+
+.topbar select {
+  flex: 1;
+  padding: 6px;
+  font-size: 14px;
+}
+
+.bottom-sheet {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: white;
+  border-top-left-radius: 16px;
+  border-top-right-radius: 16px;
+  box-shadow: 0 -2px 10px rgba(0,0,0,0.2);
+  padding: 16px;
+  transform: translateY(100%);
+  transition: transform 0.3s ease;
+  z-index: 1000;
+}
+
+.bottom-sheet.active {
+  transform: translateY(0%);
+}
+
+.bottom-sheet input,
+.bottom-sheet select {
+  width: 100%;
+  padding: 8px;
+  margin-bottom: 10px;
+  font-size: 16px;
+}
+
+.bottom-sheet button {
+  padding: 10px;
+  font-size: 16px;
+  margin-right: 10px;
+}
+
+.floating-btn {
+  position: absolute;
+  right: 15px;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: none;
+  background: white;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+  font-size: 20px;
+  z-index: 1000;
+}
+
+#locateBtn { bottom: 120px; }
+#trackBtn  { bottom: 60px; }
+
+#trackBtn.active {
+  background: #2196f3;
+  color: white;
+}
+
+.toast {
+  position: absolute;
+  bottom: 180px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0,0,0,0.8);
+  color: white;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 14px;
+  display: none;
+  z-index: 2000;
+}
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<div class="topbar">
+  <select id="layerSelect"></select>
+  <select id="attributeSelect"></select>
+</div>
+
+<div class="bottom-sheet" id="editor">
+  <div id="currentValue"></div>
+  <div id="inputContainer"></div>
+  <button id="saveBtn">Save</button>
+  <button id="deleteBtn">Delete</button>
+</div>
+
+<button class="floating-btn" id="locateBtn">📍</button>
+<button class="floating-btn" id="trackBtn">🛰</button>
+
+<div class="toast" id="toast"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/ol@latest/dist/ol.js"></script>
+<script>
+
+// ================= CONFIG =================
+
+const APP_CONFIG = {
+  projection: "EPSG:3857", // change to EPSG:3765 later
+  minEditZoom: 17,
+  extent: {
+    minX: 1500000,
+    minY: 6000000,
+    maxX: 1600000,
+    maxY: 6100000
+  },
+  layers: {
+    buildings: {
+      label: "Buildings",
+      attributes: {
+        height: { type: "number", min: 0, max: 100 },
+        status: { type: "enum", values: ["planned", "existing", "demolished"] }
+      }
+    }
+  }
+};
+
+// ================= MAP =================
+
+const projectExtent = [
+  APP_CONFIG.extent.minX,
+  APP_CONFIG.extent.minY,
+  APP_CONFIG.extent.maxX,
+  APP_CONFIG.extent.maxY
+];
+
+const gpsSource = new ol.source.Vector();
+const gpsLayer = new ol.layer.Vector({ source: gpsSource });
+
+const map = new ol.Map({
+  target: "map",
+  layers: [
+    new ol.layer.Tile({ source: new ol.source.OSM() }),
+    gpsLayer
+  ],
+  view: new ol.View({
+    center: ol.extent.getCenter(projectExtent),
+    zoom: 16,
+    projection: APP_CONFIG.projection,
+    extent: projectExtent,
+    constrainOnlyCenter: true
+  })
+});
+
+// ================= GPS =================
+
+let watchId = null;
+
+function showToast(msg) {
+  const toast = document.getElementById("toast");
+  toast.innerText = msg;
+  toast.style.display = "block";
+  setTimeout(() => toast.style.display = "none", 2000);
+}
+
+function updateGPS(position) {
+  const lon = position.coords.longitude;
+  const lat = position.coords.latitude;
+  const accuracy = position.coords.accuracy;
+
+  const coord = ol.proj.fromLonLat([lon, lat], APP_CONFIG.projection);
+
+  gpsSource.clear();
+
+  const point = new ol.Feature(new ol.geom.Point(coord));
+  point.setStyle(new ol.style.Style({
+    image: new ol.style.Circle({
+      radius: 6,
+      fill: new ol.style.Fill({ color: "#2196f3" }),
+      stroke: new ol.style.Stroke({ color: "white", width: 2 })
+    })
+  }));
+
+  const circle = new ol.Feature(
+    new ol.geom.Circle(coord, accuracy)
+  );
+  circle.setStyle(new ol.style.Style({
+    fill: new ol.style.Fill({ color: "rgba(33,150,243,0.2)" })
+  }));
+
+  gpsSource.addFeature(circle);
+  gpsSource.addFeature(point);
+
+  return coord;
+}
+
+// Locate (one shot)
+document.getElementById("locateBtn").onclick = () => {
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      const coord = updateGPS(pos);
+      map.getView().animate({
+        center: coord,
+        zoom: Math.max(map.getView().getZoom(), APP_CONFIG.minEditZoom),
+        duration: 500
+      });
+    },
+    () => showToast("GPS failed"),
+    { enableHighAccuracy: true }
+  );
+};
+
+// Track toggle
+document.getElementById("trackBtn").onclick = function() {
+  if (watchId === null) {
+    watchId = navigator.geolocation.watchPosition(
+      pos => updateGPS(pos),
+      () => showToast("GPS failed"),
+      { enableHighAccuracy: true, maximumAge: 1000 }
+    );
+    this.classList.add("active");
+  } else {
+    navigator.geolocation.clearWatch(watchId);
+    watchId = null;
+    this.classList.remove("active");
+  }
+};
+
+</script>
+</body>
+</html>
