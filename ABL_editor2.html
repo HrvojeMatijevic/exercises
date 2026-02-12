@@ -364,7 +364,7 @@ document.getElementById("locateBtn").onclick = () => {
     { enableHighAccuracy: true }
   );
 };
-
+/*
 document.getElementById("trackBtn").onclick = function() {
   if (watchId === null) {
     watchId = navigator.geolocation.watchPosition(
@@ -379,6 +379,40 @@ document.getElementById("trackBtn").onclick = function() {
     this.classList.remove("active");
   }
 };
+*/
+
+document.getElementById("trackBtn").onclick = function() {
+
+  if (watchId === null) {
+
+    watchId = navigator.geolocation.watchPosition(
+      pos => {
+        const coord = updateGPS(pos);
+
+        // 🔵 Auto-follow behavior
+        map.getView().animate({
+          center: coord,
+          duration: 300
+        });
+
+      },
+      () => showToast("GPS failed"),
+      { enableHighAccuracy: true, maximumAge: 1000 }
+    );
+
+    this.classList.add("active");
+
+  } else {
+
+    navigator.geolocation.clearWatch(watchId);
+    watchId = null;
+    this.classList.remove("active");
+
+  }
+};
+
+
+
 
 </script>
 
