@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+<title>Anchor LWW Prototype</title>
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@latest/ol.css">
+
+<style>
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  font-family: system-ui, sans-serif;
+}
+
+#map {
+  width: 100%;
+  height: 100%;
+}
+
+.topbar {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  right: 10px;
+  background: rgba(255,255,255,0.95);
+  padding: 8px;
+  border-radius: 10px;
+  display: flex;
+  gap: 8px;
+  z-index: 1000;
+}
+
+.topbar select {
+  flex: 1;
+  padding: 6px;
+  font-size: 14px;
+}
+
+.bottom-sheet {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: white;
+  border-top-left-radius: 16px;
+  border-top-right-radius: 16px;
+  box-shadow: 0 -2px 10px rgba(0,0,0,0.2);
+  padding: 16px;
+  transform: translateY(100%);
+  transition: transform 0.3s ease;
+  z-index: 1000;
+}
+
+.bottom-sheet.active {
+  transform: translateY(0%);
+}
+
+.bottom-sheet h3 {
+  margin-top: 0;
+}
+
+.bottom-sheet input,
+.bottom-sheet select {
+  width: 100%;
+  padding: 8px;
+  margin-bottom: 10px;
+  font-size: 16px;
+}
+
+.bottom-sheet button {
+  padding: 10px;
+  font-size: 16px;
+  margin-right: 10px;
+}
+
+.toast {
+  position: absolute;
+  bottom: 120px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0,0,0,0.8);
+  color: white;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 14px;
+  display: none;
+  z-index: 2000;
+}
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<div class="topbar">
+  <select id="layerSelect"></select>
+  <select id="attributeSelect"></select>
+</div>
+
+<div class="bottom-sheet" id="editor">
+  <h3 id="editorTitle">Edit</h3>
+  <div id="currentValue"></div>
+  <div id="inputContainer"></div>
+  <button id="saveBtn">Save</button>
+  <button id="deleteBtn">Delete</button>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/ol@latest/dist/ol.js"></script>
+<script>
+
+// ================= CONFIG =================
+
+const APP_CONFIG = {
+  version: "0.1",
+  projection: "EPSG:3857", // for demo only; replace with EPSG:3765 in real use
+
+  extent: {
+    minX: 1500000,
+    minY: 6000000,
+    maxX: 1600000,
+    maxY: 6100000
+  },
+
+  minEditZoom: 17,
+
+  layers: {
+    buildings: {
+      label: "Buildings",
+      attributes: {
+        height: { type: "number", min: 0, max: 100, step: 0.5 },
+        status: { type: "enum", values: ["planned", "existing", "demolished"] },
+        note: { type: "string", maxLength: 100 }
+      }
+    }
+  }
+};
+
+// ================= MAP =================
+
+const projectExtent = [
+  APP_CONFIG.extent.minX,
+  APP_CONFIG.extent.minY,
+  APP_CONFIG.extent.maxX,
+  APP_CONFIG.extent.maxY
+];
+
+const map = new ol.Map({
+  target: "map",
+  layers: [
+    new ol.layer.Tile({
+      source: new ol.source.OSM()
+    })
+  ],
+  view: new ol.View({
+    center: ol.extent.getCenter(projectExtent),
+    zoom: 16,
+    projection: APP_CONFIG.projection,
+    extent: projectExtent,
+    constrainOnlyCenter: true
+  })
+});
+
+// ================= UI SETUP =================
+
+const layerSelect = document.getElementById("layerSelect");
+const attributeSelect = document.getElementById("attributeSelect");
+const editor = document.getElementById("editor");
+const inputContainer = document.getElementById("inputContainer");
+const toast = document.getElementById("toast");
+const currentValueDiv = document.getElementById("currentValue");
+
+function showToast(msg) {
+  toast.innerText = msg;
+  toast.style.display = "block";
+  setTimeout(() => toast.style.display = "none", 2000);
+}
+
+function populateLayers() {
+  for (let key in APP_CONFIG.layers) {
+    const opt = document.createElement("option");
+    opt.value = key;
+    opt.innerText = APP_CONFIG.layers[key].label;
+    layerSelect.appendChild(opt);
+  }
+  populateAttributes();
+}
+
+function populateAttributes() {
+  attributeSelect.innerHTML = "";
+  const layerKey = layerSelect.value;
+  const attrs = APP_CONFIG.layers[layerKey].attributes;
+
+  for (let key in attrs) {
+    const opt = document.createElement("option");
+    opt.value = key;
+    opt.innerText = key;
+    attributeSelect.appendChild(opt);
+  }
+}
+
+function buildInput() {
+  inputContainer.innerHTML = "";
+  const layerKey = layerSelect.value;
+  const attrKey = attributeSelect.value;
+  const attr = APP_CONFIG.layers[layerKey].attributes[attrKey];
+
+  if (attr.type === "number") {
+    const input = document.createElement("input");
+    input.type = "number";
+    input.min = attr.min;
+    input.max = attr.max;
+    input.step = attr.step || 1;
+    inputContainer.appendChild(input);
+  }
+  else if (attr.type === "enum") {
+    const select = document.createElement("select");
+    attr.values.forEach(v => {
+      const opt = document.createElement("option");
+      opt.value = v;
+      opt.innerText = v;
+      select.appendChild(opt);
+    });
+    inputContainer.appendChild(select);
+  }
+  else if (attr.type === "string") {
+    const input = document.createElement("input");
+    input.type = "text";
+    input.maxLength = attr.maxLength || 255;
+    inputContainer.appendChild(input);
+  }
+}
+
+layerSelect.addEventListener("change", () => {
+  populateAttributes();
+  buildInput();
+});
+
+attributeSelect.addEventListener("change", buildInput);
+
+// ================= MAP TAP =================
+
+map.on("singleclick", (evt) => {
+
+  const zoom = map.getView().getZoom();
+
+  if (zoom < APP_CONFIG.minEditZoom) {
+    showToast("Zoom in to edit");
+    return;
+  }
+
+  const coord = evt.coordinate;
+
+  currentValueDiv.innerHTML = "<strong>Current value:</strong> (placeholder)";
+  editor.classList.add("active");
+
+  console.log("Tapped at:", coord);
+});
+
+// ================= SAVE / DELETE =================
+
+document.getElementById("saveBtn").addEventListener("click", () => {
+  console.log("SAVE pressed");
+  editor.classList.remove("active");
+});
+
+document.getElementById("deleteBtn").addEventListener("click", () => {
+  console.log("DELETE pressed");
+  editor.classList.remove("active");
+});
+
+// Init
+populateLayers();
+buildInput();
+
+</script>
+</body>
+</html>
