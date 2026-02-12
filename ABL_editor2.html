@@ -276,13 +276,13 @@ map.on("singleclick", function(evt) {
 
 /* ================= SAVE / DELETE ================= */
 
-document.getElementById("saveBtn").onclick = () => {
-  console.log("SAVE clicked");
+document.getElementById("saveBtn").onclick = (e) => {
+  e.stopPropagation();
   editor.classList.remove("active");
 };
 
-document.getElementById("deleteBtn").onclick = () => {
-  console.log("DELETE clicked");
+document.getElementById("deleteBtn").onclick = (e) => {
+  e.stopPropagation();
   editor.classList.remove("active");
 };
 
