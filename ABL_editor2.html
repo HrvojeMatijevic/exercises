@@ -1,18 +1,25 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="hr">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+<meta charset="utf-8">
 <title>Anchor LWW Prototype</title>
 
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@latest/ol.css">
+<!-- OpenLayers -->
+<script src="https://cdn.jsdelivr.net/npm/ol@v10.5.0/dist/ol.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@v10.5.0/ol.css">
+
+<!-- Proj4 -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.5.0/proj4.js"></script>
 
 <style>
 html, body {
   margin: 0;
   padding: 0;
-  height: 100%;
-  font-family: system-ui, sans-serif;
+  height: 100vh;
+  width: 100vw;
+  font-family: system-ui;
 }
 
 #map {
@@ -36,40 +43,6 @@ html, body {
 .topbar select {
   flex: 1;
   padding: 6px;
-  font-size: 14px;
-}
-
-.bottom-sheet {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: white;
-  border-top-left-radius: 16px;
-  border-top-right-radius: 16px;
-  box-shadow: 0 -2px 10px rgba(0,0,0,0.2);
-  padding: 16px;
-  transform: translateY(100%);
-  transition: transform 0.3s ease;
-  z-index: 1000;
-}
-
-.bottom-sheet.active {
-  transform: translateY(0%);
-}
-
-.bottom-sheet input,
-.bottom-sheet select {
-  width: 100%;
-  padding: 8px;
-  margin-bottom: 10px;
-  font-size: 16px;
-}
-
-.bottom-sheet button {
-  padding: 10px;
-  font-size: 16px;
-  margin-right: 10px;
 }
 
 .floating-btn {
@@ -85,8 +58,8 @@ html, body {
   z-index: 1000;
 }
 
-#locateBtn { bottom: 120px; }
-#trackBtn  { bottom: 60px; }
+#locateBtn { bottom: 100px; }
+#trackBtn  { bottom: 40px; }
 
 #trackBtn.active {
   background: #2196f3;
@@ -95,7 +68,7 @@ html, body {
 
 .toast {
   position: absolute;
-  bottom: 180px;
+  bottom: 160px;
   left: 50%;
   transform: translateX(-50%);
   background: rgba(0,0,0,0.8);
@@ -108,6 +81,7 @@ html, body {
 }
 </style>
 </head>
+
 <body>
 
 <div id="map"></div>
@@ -117,79 +91,69 @@ html, body {
   <select id="attributeSelect"></select>
 </div>
 
-<div class="bottom-sheet" id="editor">
-  <div id="currentValue"></div>
-  <div id="inputContainer"></div>
-  <button id="saveBtn">Save</button>
-  <button id="deleteBtn">Delete</button>
-</div>
-
 <button class="floating-btn" id="locateBtn">📍</button>
 <button class="floating-btn" id="trackBtn">🛰</button>
 
 <div class="toast" id="toast"></div>
 
-<script src="https://cdn.jsdelivr.net/npm/ol@latest/dist/ol.js"></script>
 <script>
 
-// ================= CONFIG =================
+// ================== PROJECTION ==================
+
+proj4.defs('EPSG:3765',
+  '+proj=tmerc +lat_0=0 +lon_0=16.5 +k=0.9999 +x_0=500000 +y_0=0 ' +
+  '+ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs'
+);
+ol.proj.proj4.register(proj4);
+
+const htrs96 = ol.proj.get('EPSG:3765');
+
+// ================== CONFIG ==================
 
 const APP_CONFIG = {
-  projection: "EPSG:3857", // change to EPSG:3765 later
-  minEditZoom: 17,
-  extent: {
-    minX: 1500000,
-    minY: 6000000,
-    maxX: 1600000,
-    maxY: 6100000
-  },
+  minEditZoom: 18,
   layers: {
     buildings: {
       label: "Buildings",
       attributes: {
-        height: { type: "number", min: 0, max: 100 },
+        height: { type: "number" },
         status: { type: "enum", values: ["planned", "existing", "demolished"] }
       }
     }
   }
 };
 
-// ================= MAP =================
+// ================== MAP ==================
 
-const projectExtent = [
-  APP_CONFIG.extent.minX,
-  APP_CONFIG.extent.minY,
-  APP_CONFIG.extent.maxX,
-  APP_CONFIG.extent.maxY
-];
+const DOF = new ol.layer.Tile({
+  source: new ol.source.TileWMS({
+    url: 'https://geoportal.dgu.hr/services/inspire/orthophoto_lidar_2022_2023/wms',
+    params: { 'LAYERS': 'OI.OrthoimageCoverage', 'TILED': true }
+  })
+});
 
 const gpsSource = new ol.source.Vector();
 const gpsLayer = new ol.layer.Vector({ source: gpsSource });
 
 const map = new ol.Map({
-  target: "map",
-  layers: [
-    new ol.layer.Tile({ source: new ol.source.OSM() }),
-    gpsLayer
-  ],
+  target: 'map',
+  layers: [DOF, gpsLayer],
   view: new ol.View({
-    center: ol.extent.getCenter(projectExtent),
-    zoom: 16,
-    projection: APP_CONFIG.projection,
-    extent: projectExtent,
-    constrainOnlyCenter: true
+    projection: htrs96,
+    center: [500000, 5070000], // Zagreb area
+    zoom: 16
   })
 });
 
-// ================= GPS =================
+// ================== GPS ==================
 
 let watchId = null;
 
 function showToast(msg) {
-  const toast = document.getElementById("toast");
-  toast.innerText = msg;
-  toast.style.display = "block";
-  setTimeout(() => toast.style.display = "none", 2000);
+  const t = document.getElementById("toast");
+  t.innerText = msg;
+  t.style.display = "block";
+  setTimeout(() => t.style.display = "none", 2000);
 }
 
 function updateGPS(position) {
@@ -197,7 +161,11 @@ function updateGPS(position) {
   const lat = position.coords.latitude;
   const accuracy = position.coords.accuracy;
 
-  const coord = ol.proj.fromLonLat([lon, lat], APP_CONFIG.projection);
+  const coord = ol.proj.transform(
+    [lon, lat],
+    'EPSG:4326',
+    'EPSG:3765'
+  );
 
   gpsSource.clear();
 
@@ -223,14 +191,13 @@ function updateGPS(position) {
   return coord;
 }
 
-// Locate (one shot)
 document.getElementById("locateBtn").onclick = () => {
   navigator.geolocation.getCurrentPosition(
     pos => {
       const coord = updateGPS(pos);
       map.getView().animate({
         center: coord,
-        zoom: Math.max(map.getView().getZoom(), APP_CONFIG.minEditZoom),
+        zoom: APP_CONFIG.minEditZoom,
         duration: 500
       });
     },
@@ -239,7 +206,6 @@ document.getElementById("locateBtn").onclick = () => {
   );
 };
 
-// Track toggle
 document.getElementById("trackBtn").onclick = function() {
   if (watchId === null) {
     watchId = navigator.geolocation.watchPosition(
