@@ -1,0 +1,26 @@
+{
+"type": "FeatureCollection",
+"name": "anchors_kopija",
+"features": [
+{ "type": "Feature", "properties": { "layer": "Zgrade", "attr": "kbr", "designator": "9", "op_id": "7de13900-7435-489d-9534-90b2617a3d93", "epoch": 1 }, "geometry": { "type": "Point", "coordinates": [ 542203.644961417419836, 4794970.707930840551853 ] } },
+{ "type": "Feature", "properties": { "layer": "Zgrade", "attr": "kbr", "designator": "11", "op_id": "5c843c5b-a5aa-4a4f-9be0-32c0c6a4d3e7", "epoch": 1 }, "geometry": { "type": "Point", "coordinates": [ 542186.782838896964677, 4794989.132937867194414 ] } },
+{ "type": "Feature", "properties": { "layer": "Zgrade", "attr": "kbr", "designator": "4", "op_id": "99623ad5-44c9-4dd7-b47e-2ed9f5eb9967", "epoch": 1 }, "geometry": { "type": "Point", "coordinates": [ 542224.801824592985213, 4795081.249842902645469 ] } },
+{ "type": "Feature", "properties": { "layer": "Zgrade", "attr": "kbr", "designator": "4", "op_id": "d97e6cd6-00a1-470b-8f91-3b7840ac7226", "epoch": 1 }, "geometry": { "type": "Point", "coordinates": [ 542233.271284023649059, 4794912.010199979878962 ] } },
+{ "type": "Feature", "properties": { "layer": "Zgrade", "attr": "kbr", "designator": "3", "op_id": "ab0fc526-73cc-4e95-914a-7fafe6a96017", "epoch": 1 }, "geometry": { "type": "Point", "coordinates": [ 542240.52779418870341, 4795053.885367638431489 ] } },
+{ "type": "Feature", "properties": { "layer": "Zgrade", "attr": "kbr", "designator": "4", "op_id": "1e5601dc-e360-4b33-bac2-11069320a6fb", "epoch": 1 }, "geometry": { "type": "Point", "coordinates": [ 542356.646283960551955, 4795007.877273800782859 ] } },
+{ "type": "Feature", "properties": { "layer": "Zgrade", "attr": "kbr", "designator": "3", "op_id": "f7e956d8-18e1-4db5-af61-b51af064f870", "epoch": 1 }, "geometry": { "type": "Point", "coordinates": [ 542322.500728920684196, 4794953.318966475315392 ] } },
+{ "type": "Feature", "properties": { "layer": "Zgrade", "attr": "kbr", "designator": "5", "op_id": "a72b0229-f5b8-450b-a0ee-999818bdc080", "epoch": 1 }, "geometry": { "type": "Point", "coordinates": [ 542290.634855321026407, 4794932.592715070582926 ] } },
+{ "type": "Feature", "properties": { "layer": "Zgrade", "attr": "kbr", "designator": "2", "op_id": "4b239e11-3a0f-4a3e-8078-4d9c99c8f800", "epoch": 1 }, "geometry": { "type": "Point", "coordinates": [ 542299.231765948585235, 4794945.198616451583803 ] } },
+{ "type": "Feature", "properties": { "layer": "Zgrade", "attr": "kbr", "designator": "4", "op_id": "5ab76455-47df-482a-8510-19043647936c", "epoch": 1 }, "geometry": { "type": "Point", "coordinates": [ 542241.10986568685621, 4794934.817440502345562 ] } },
+{ "type": "Feature", "properties": { "layer": "Zgrade", "attr": "kbr", "designator": "16", "op_id": "bc92fb2a-362e-462e-8551-012cc591d89b", "epoch": 1 }, "geometry": { "type": "Point", "coordinates": [ 542257.356590482289903, 4794935.267094845883548 ] } },
+{ "type": "Feature", "properties": { "layer": "Zgrade", "attr": "kbr", "designator": "2", "op_id": "e5e62f94-506c-4c32-ad34-e93c5ffa520c", "epoch": 1 }, "geometry": { "type": "Point", "coordinates": [ 542323.03053242363967, 4795009.883572096936405 ] } },
+{ "type": "Feature", "properties": { "layer": "Zgrade", "attr": "kbr", "designator": "8", "op_id": "3bd5346f-7f9e-4708-a7ff-fdf807105b0b", "epoch": 1 }, "geometry": { "type": "Point", "coordinates": [ 542333.583408537786454, 4795010.947212449274957 ] } },
+{ "type": "Feature", "properties": { "layer": "Zgrade", "attr": "kbr", "designator": "3", "op_id": "5c7f8b6a-b9c0-4314-ac1b-3a29d2e4bf1f", "epoch": 1 }, "geometry": { "type": "Point", "coordinates": [ 542253.37163381872233, 4794913.465846295468509 ] } },
+{ "type": "Feature", "properties": { "layer": "Zgrade", "attr": "kbr", "designator": "5", "op_id": "e046555f-db37-472f-a8ca-c1890a114558", "epoch": 1 }, "geometry": { "type": "Point", "coordinates": [ 542251.509823859669268, 4794902.238207990303636 ] } },
+{ "type": "Feature", "properties": { "layer": "Zgrade", "attr": "kbr", "designator": "5", "op_id": "d2f12142-a87d-4109-a538-34d06e2ad6a6", "epoch": 1 }, "geometry": { "type": "Point", "coordinates": [ 542264.280026892549358, 4794900.972049698233604 ] } },
+{ "type": "Feature", "properties": { "layer": "Zgrade", "attr": "kbr", "designator": "18", "op_id": "5c41a39b-f787-4c40-beac-1a6e33acd359", "epoch": 1 }, "geometry": { "type": "Point", "coordinates": [ 542277.949713046080433, 4794933.862046727910638 ] } },
+{ "type": "Feature", "properties": { "layer": "Zgrade", "attr": "kbr", "designator": "8", "op_id": "ae5bdcb8-d5d6-4413-8374-e311c41303cf", "epoch": 1 }, "geometry": { "type": "Point", "coordinates": [ 542240.201757571077906, 4794969.975283301435411 ] } },
+{ "type": "Feature", "properties": { "layer": "Zgrade", "attr": "kbr", "designator": "7", "op_id": "819d515b-6df2-465d-bc77-15269167198e", "epoch": 1 }, "geometry": { "type": "Point", "coordinates": [ 542269.644038987695239, 4794894.812994736246765 ] } },
+{ "type": "Feature", "properties": { "layer": "Zgrade", "attr": "kbr", "designator": "15", "op_id": "103a6fbc-1d0c-4af2-a7f7-8695702d2d5f", "epoch": 1 }, "geometry": { "type": "Point", "coordinates": [ 542269.178315139142796, 4794915.91023513674736 ] } }
+]
+}
