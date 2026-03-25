@@ -1,6 +1,7 @@
 {
 "type": "FeatureCollection",
 "name": "anchors_kopija",
+"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:EPSG::3765" } },
 "features": [
 { "type": "Feature", "properties": { "layer": "Zgrade", "attr": "kbr", "designator": "9", "op_id": "7de13900-7435-489d-9534-90b2617a3d93", "epoch": 1 }, "geometry": { "type": "Point", "coordinates": [ 542203.644961417419836, 4794970.707930840551853 ] } },
 { "type": "Feature", "properties": { "layer": "Zgrade", "attr": "kbr", "designator": "11", "op_id": "5c843c5b-a5aa-4a4f-9be0-32c0c6a4d3e7", "epoch": 1 }, "geometry": { "type": "Point", "coordinates": [ 542186.782838896964677, 4794989.132937867194414 ] } },
