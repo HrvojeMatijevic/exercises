@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>Rectangle UI Tester</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@10.5.0/ol.css">
+  <script src="https://cdn.jsdelivr.net/npm/ol@10.5.0/dist/ol.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.5.0/proj4.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; width: 100%; height: 100%; font-family: system-ui, sans-serif; }
+    #app { position: relative; width: 100%; height: 100%; }
+    #map { width: 100%; height: 100%; }
+    .panel {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      right: 10px;
+      z-index: 1000;
+      background: rgba(255,255,255,0.95);
+      border-radius: 14px;
+      padding: 10px;
+      box-shadow: 0 3px 12px rgba(0,0,0,0.2);
+    }
+    .row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-bottom: 8px;
+    }
+    .row:last-child { margin-bottom: 0; }
+    label { font-size: 13px; }
+    select, input[type="range"], button {
+      font-size: 14px;
+      padding: 8px;
+    }
+    select, button {
+      border-radius: 10px;
+      border: 1px solid #ccc;
+      background: white;
+    }
+    input[type="range"] { flex: 1; min-width: 120px; }
+    .badge {
+      font-size: 12px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: #f0f0f0;
+    }
+    .hint {
+      position: absolute;
+      left: 10px;
+      right: 10px;
+      bottom: 10px;
+      z-index: 1000;
+      background: rgba(0,0,0,0.78);
+      color: white;
+      border-radius: 12px;
+      padding: 10px 12px;
+      font-size: 13px;
+      line-height: 1.3;
+    }
+    .hint strong { color: #ffd166; }
+    @media (min-width: 950px) {
+      .panel { max-width: 760px; right: auto; }
+      .hint { max-width: 760px; right: auto; }
+    }
+  </style>
+</head>
+<body>
+<div id="app">
+  <div id="map"></div>
+
+  <div class="panel">
+    <div class="row">
+      <label for="mode"><strong>Mode</strong></label>
+      <select id="mode">
+        <option value="centerCorner">Center → drag corner</option>
+        <option value="centerAxis">Center → drag axis, fixed width</option>
+        <option value="twoCorners">Two corners (classic bbox)</option>
+      </select>
+      <button id="clearBtn">Clear</button>
+      <button id="undoBtn">Undo</button>
+    </div>
+    <div class="row">
+      <label for="widthSlider">Fixed width</label>
+      <input id="widthSlider" type="range" min="2" max="30" step="0.5" value="8" />
+      <span class="badge" id="widthValue">8 m</span>
+    </div>
+    <div class="row">
+      <label><input id="snap45" type="checkbox" /> Snap angle to 45°</label>
+      <label><input id="showAxis" type="checkbox" checked /> Show helper axis</label>
+      <span class="badge" id="status">Tap map to start</span>
+    </div>
+  </div>
+
+  <div class="hint" id="hintBox">
+    <strong>Center → drag corner</strong>: tap once to set center, then drag to shape an oriented rectangle. This is the main mobile candidate.
+  </div>
+</div>
+
+<script>
+  // Projection setup
+  proj4.defs(
+    'EPSG:3765',
+    '+proj=tmerc +lat_0=0 +lon_0=16.5 +k=0.9999 +x_0=500000 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs'
+  );
+  ol.proj.proj4.register(proj4);
+
+  const projectionCode = 'EPSG:3765';
+
+  const raster = new ol.layer.Tile({
+    source: new ol.source.TileWMS({
+      url: 'https://geoportal.dgu.hr/services/inspire/orthophoto_lidar_2022_2023/wms',
+      params: { LAYERS: 'OI.OrthoimageCoverage', TILED: true },
+      crossOrigin: 'anonymous'
+    })
+  });
+
+  const sketchSource = new ol.source.Vector();
+  const sketchLayer = new ol.layer.Vector({ source: sketchSource });
+
+  const resultSource = new ol.source.Vector();
+  const resultLayer = new ol.layer.Vector({ source: resultSource });
+
+  const map = new ol.Map({
+    target: 'map',
+    layers: [raster, resultLayer, sketchLayer],
+    view: new ol.View({
+      projection: projectionCode,
+      center: [541000, 4795000],
+      zoom: 18,
+      minZoom: 10,
+      maxZoom: 22
+    })
+  });
+
+  const modeEl = document.getElementById('mode');
+  const widthSlider = document.getElementById('widthSlider');
+  const widthValue = document.getElementById('widthValue');
+  const snap45 = document.getElementById('snap45');
+  const showAxis = document.getElementById('showAxis');
+  const statusEl = document.getElementById('status');
+  const hintBox = document.getElementById('hintBox');
+  const clearBtn = document.getElementById('clearBtn');
+  const undoBtn = document.getElementById('undoBtn');
+
+  let center = null;
+  let startCorner = null;
+  let dragging = false;
+  let pointerCoord = null;
+  let resultFeatures = [];
+
+  const sketchRect = new ol.Feature();
+  const sketchCenter = new ol.Feature();
+  const sketchAxis = new ol.Feature();
+  sketchSource.addFeature(sketchRect);
+  sketchSource.addFeature(sketchCenter);
+  sketchSource.addFeature(sketchAxis);
+
+  sketchRect.setStyle(new ol.style.Style({
+    stroke: new ol.style.Stroke({ color: '#ff3d00', width: 3 }),
+    fill: new ol.style.Fill({ color: 'rgba(255,61,0,0.15)' })
+  }));
+
+  sketchCenter.setStyle(new ol.style.Style({
+    image: new ol.style.Circle({
+      radius: 5,
+      fill: new ol.style.Fill({ color: '#1976d2' }),
+      stroke: new ol.style.Stroke({ color: '#fff', width: 2 })
+    })
+  }));
+
+  sketchAxis.setStyle(new ol.style.Style({
+    stroke: new ol.style.Stroke({ color: '#1976d2', width: 2, lineDash: [10, 8] })
+  }));
+
+  function setStatus(text) {
+    statusEl.textContent = text;
+  }
+
+  function updateHint() {
+    const mode = modeEl.value;
+    if (mode === 'centerCorner') {
+      hintBox.innerHTML = '<strong>Center → drag corner</strong>: tap once to set center, then drag to shape an oriented rectangle. This is the main mobile candidate.';
+    } else if (mode === 'centerAxis') {
+      hintBox.innerHTML = '<strong>Center → drag axis, fixed width</strong>: tap once for center, drag to set orientation and length. Width is controlled by the slider.';
+    } else {
+      hintBox.innerHTML = '<strong>Two corners</strong>: drag from first corner to opposite corner. Fast and precise, but less intuitive on mobile.';
+    }
+  }
+
+  function snapAngle(angle) {
+    if (!snap45.checked) return angle;
+    const step = Math.PI / 4;
+    return Math.round(angle / step) * step;
+  }
+
+  function rotatePoint(cx, cy, x, y, angle) {
+    const dx = x - cx;
+    const dy = y - cy;
+    const c = Math.cos(angle);
+    const s = Math.sin(angle);
+    return [
+      cx + dx * c - dy * s,
+      cy + dx * s + dy * c
+    ];
+  }
+
+  function makeRectFromCenterCorner(centerCoord, cornerCoord) {
+    const cx = centerCoord[0], cy = centerCoord[1];
+    let dx = cornerCoord[0] - cx;
+    let dy = cornerCoord[1] - cy;
+
+    let angle = Math.atan2(dy, dx);
+    angle = snapAngle(angle);
+
+    const c = Math.cos(-angle);
+    const s = Math.sin(-angle);
+    const localX = dx * c - dy * s;
+    const localY = dx * s + dy * c;
+
+    const halfL = Math.max(0.5, Math.abs(localX));
+    const halfW = Math.max(0.5, Math.abs(localY));
+
+    return rectCornersFromCenter(centerCoord, halfL, halfW, angle);
+  }
+
+  function rectCornersFromCenter(centerCoord, halfL, halfW, angle) {
+    const cx = centerCoord[0], cy = centerCoord[1];
+    const ux = Math.cos(angle), uy = Math.sin(angle);
+    const vx = -uy, vy = ux;
+
+    const p1 = [cx + ux * halfL + vx * halfW, cy + uy * halfL + vy * halfW];
+    const p2 = [cx + ux * halfL - vx * halfW, cy + uy * halfL - vy * halfW];
+    const p3 = [cx - ux * halfL - vx * halfW, cy - uy * halfL - vy * halfW];
+    const p4 = [cx - ux * halfL + vx * halfW, cy - uy * halfL + vy * halfW];
+
+    return [p1, p2, p3, p4, p1];
+  }
+
+  function makeRectFromCenterAxis(centerCoord, axisCoord) {
+    const dx = axisCoord[0] - centerCoord[0];
+    const dy = axisCoord[1] - centerCoord[1];
+    let angle = Math.atan2(dy, dx);
+    angle = snapAngle(angle);
+    const halfL = Math.max(0.5, Math.sqrt(dx * dx + dy * dy));
+    const halfW = Number(widthSlider.value) / 2;
+    return rectCornersFromCenter(centerCoord, halfL, halfW, angle);
+  }
+
+  function makeRectFromTwoCorners(a, b) {
+    const x1 = Math.min(a[0], b[0]);
+    const x2 = Math.max(a[0], b[0]);
+    const y1 = Math.min(a[1], b[1]);
+    const y2 = Math.max(a[1], b[1]);
+    return [[x1,y1],[x2,y1],[x2,y2],[x1,y2],[x1,y1]];
+  }
+
+  function setSketchPolygon(coords) {
+    sketchRect.setGeometry(new ol.geom.Polygon([coords]));
+  }
+
+  function setCenterMarker(coord) {
+    sketchCenter.setGeometry(coord ? new ol.geom.Point(coord) : null);
+  }
+
+  function setAxisLine(a, b) {
+    if (!showAxis.checked || !a || !b) {
+      sketchAxis.setGeometry(null);
+      return;
+    }
+    sketchAxis.setGeometry(new ol.geom.LineString([a, b]));
+  }
+
+  function clearSketch() {
+    center = null;
+    startCorner = null;
+    dragging = false;
+    pointerCoord = null;
+    sketchRect.setGeometry(null);
+    sketchCenter.setGeometry(null);
+    sketchAxis.setGeometry(null);
+    setStatus('Tap map to start');
+  }
+
+  function finalizeCurrentShape() {
+    const geom = sketchRect.getGeometry();
+    if (!geom) return;
+    const feature = new ol.Feature({ geometry: geom.clone() });
+    feature.setStyle(new ol.style.Style({
+      stroke: new ol.style.Stroke({ color: '#00a152', width: 3 }),
+      fill: new ol.style.Fill({ color: 'rgba(0,161,82,0.15)' })
+    }));
+    resultSource.addFeature(feature);
+    resultFeatures.push(feature);
+    clearSketch();
+  }
+
+  function updateSketch(coord) {
+    pointerCoord = coord;
+    const mode = modeEl.value;
+
+    if (mode === 'centerCorner') {
+      if (!center || !pointerCoord) return;
+      const poly = makeRectFromCenterCorner(center, pointerCoord);
+      setSketchPolygon(poly);
+      setCenterMarker(center);
+      setAxisLine(center, pointerCoord);
+      setStatus('Release to finalize');
+    } else if (mode === 'centerAxis') {
+      if (!center || !pointerCoord) return;
+      const poly = makeRectFromCenterAxis(center, pointerCoord);
+      setSketchPolygon(poly);
+      setCenterMarker(center);
+      setAxisLine(center, pointerCoord);
+      setStatus('Release to finalize');
+    } else if (mode === 'twoCorners') {
+      if (!startCorner || !pointerCoord) return;
+      const poly = makeRectFromTwoCorners(startCorner, pointerCoord);
+      setSketchPolygon(poly);
+      setCenterMarker(startCorner);
+      setAxisLine(startCorner, pointerCoord);
+      setStatus('Release to finalize');
+    }
+  }
+
+  map.on('pointerdown', (evt) => {
+    const mode = modeEl.value;
+
+    if (mode === 'centerCorner' || mode === 'centerAxis') {
+      if (!center) {
+        center = evt.coordinate.slice();
+        setCenterMarker(center);
+        setStatus('Drag to shape rectangle');
+      }
+      dragging = true;
+      updateSketch(evt.coordinate);
+    } else if (mode === 'twoCorners') {
+      startCorner = evt.coordinate.slice();
+      dragging = true;
+      updateSketch(evt.coordinate);
+    }
+  });
+
+  map.on('pointerdrag', (evt) => {
+    if (!dragging) return;
+    updateSketch(evt.coordinate);
+  });
+
+  map.on('pointerup', (evt) => {
+    if (!dragging) return;
+    updateSketch(evt.coordinate);
+    finalizeCurrentShape();
+  });
+
+  widthSlider.addEventListener('input', () => {
+    widthValue.textContent = `${widthSlider.value} m`;
+    if (modeEl.value === 'centerAxis' && center && pointerCoord) {
+      updateSketch(pointerCoord);
+    }
+  });
+
+  showAxis.addEventListener('change', () => {
+    if (center && pointerCoord) updateSketch(pointerCoord);
+    else setAxisLine(null, null);
+  });
+
+  modeEl.addEventListener('change', () => {
+    clearSketch();
+    updateHint();
+  });
+
+  clearBtn.addEventListener('click', () => {
+    resultSource.clear();
+    resultFeatures = [];
+    clearSketch();
+  });
+
+  undoBtn.addEventListener('click', () => {
+    const last = resultFeatures.pop();
+    if (last) resultSource.removeFeature(last);
+    clearSketch();
+  });
+
+  updateHint();
+  widthValue.textContent = `${widthSlider.value} m`;
+</script>
+</body>
+</html>
