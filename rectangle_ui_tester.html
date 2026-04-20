@@ -34,6 +34,7 @@ const raster = new ol.layer.Tile({
 
 const source = new ol.source.Vector();
 const layer = new ol.layer.Vector({ source });
+//let mode = "VIEW"; // or "EDIT"
 
 const map = new ol.Map({
   target: 'map',
@@ -60,10 +61,8 @@ function buildRect() {
   const uy = Math.sin(angle);
   const vx = -uy;
   const vy = ux;
-
   const cx = center[0];
   const cy = center[1];
-
   return new ol.geom.Polygon([[
     [cx + ux*halfL + vx*halfW, cy + uy*halfL + vy*halfW],
     [cx + ux*halfL - vx*halfW, cy + uy*halfL - vy*halfW],
@@ -87,34 +86,39 @@ let handles = [];
 function createHandles() {
   handles.forEach(h => source.removeFeature(h));
   handles = [];
-
   const cx = center[0];
   const cy = center[1];
-
   const ux = Math.cos(angle);
   const uy = Math.sin(angle);
   const vx = -uy;
   const vy = ux;
-
   // center handle
   const centerH = new ol.Feature(new ol.geom.Point([cx, cy]));
   centerH.set("type", "move");
   handles.push(centerH);
-
   // corner handle
   const corner = [cx + ux*halfL + vx*halfW, cy + uy*halfL + vy*halfW];
   const cornerH = new ol.Feature(new ol.geom.Point(corner));
   cornerH.set("type", "scale");
   handles.push(cornerH);
-
   // rotate handle
-  const rot = [cx + ux*(halfL + 40), cy + uy*(halfL + 40)];
+  const rot = [cx + ux*(halfL + 20), cy + uy*(halfL + 20)];
   const rotH = new ol.Feature(new ol.geom.Point(rot));
   rotH.set("type", "rotate");
   handles.push(rotH);
-
   handles.forEach(h => source.addFeature(h));
 }
+
+
+function showHandles() {
+  createHandles();
+}
+
+function hideHandles() {
+  handles.forEach(h => source.removeFeature(h));
+  handles = [];
+}
+
 
 // --- styles ---
 layer.setStyle(f => {
@@ -137,108 +141,85 @@ layer.setStyle(f => {
 
 // --- mode switch ---
 document.getElementById("drawBtn").onclick = () => {
-
-  if (mode === "VIEW") {
-    mode = "DRAW";
-    map.getInteractions().forEach(i => i.setActive(false));
-  } else {
-    mode = "VIEW";
-    map.getInteractions().forEach(i => i.setActive(true));
+  // remove existing rectangle (optional)
+  if (rect) {
+    source.removeFeature(rect);
+    hideHandles();
   }
-
+  // create new rectangle at map center
+  center = map.getView().getCenter();
+  angle = 0;
+  halfL = 35;
+  halfW = 20;
+  rect = new ol.Feature();
+  source.addFeature(rect);
+  updateRect();
+  // enter edit mode immediately
+  mode = "EDIT";
+  showHandles();
+  map.getInteractions().forEach(i => i.setActive(false));
 };
 
-
 // --- events ---
-map.on("pointerdown", e => {
-
-  if (mode === "DRAW") {
-    center = e.coordinate;
-    angle = 0;
-    halfL = 35;
-    halfW = 20;
-
-    updateRect();
-    createHandles();
-
-    mode = "EDIT";
+map.on("pointerdown", (e) => {
+  let clickedHandle = null;
+  let clickedRect = false;
+  map.forEachFeatureAtPixel(e.pixel, f => {
+    if (f.get("type")) {
+      clickedHandle = f;
+      return true;
+    }
+    if (f === rect) {
+      clickedRect = true;
+    }
+  }, { hitTolerance: 25 });
+  // --- HANDLE CLICK ---
+  if (clickedHandle && mode === "EDIT") {
+    activeHandle = clickedHandle;
     return;
   }
-
-  if (mode !== "EDIT") return;
-
-map.forEachFeatureAtPixel(e.pixel, f => {
-  if (f.get("type")) activeHandle = f;
-}, {
-  hitTolerance: 25
+  // --- ENTER EDIT MODE ---
+  if (clickedRect && mode === "VIEW") {
+    mode = "EDIT";
+    showHandles();
+    map.getInteractions().forEach(i => i.setActive(false));
+    return;
+  }
+  // --- EXIT EDIT MODE ---
+  if (!clickedRect && mode === "EDIT") {
+    mode = "VIEW";
+    hideHandles();
+    map.getInteractions().forEach(i => i.setActive(true));
+    return;
+  }
 });
 
-});
-
-
-map.on("pointermove_OLD", e => {
-
-  if (!activeHandle) return;
-
-  const dx = e.coordinate[0] - center[0];
-  const dy = e.coordinate[1] - center[1];
-
-  const type = activeHandle.get("type");
-
-  if (type === "move") {
-    center = e.coordinate;
-  }
-
-  if (type === "scale") {
-    halfL = Math.sqrt(dx*dx + dy*dy);
-    angle = Math.atan2(dy, dx);
-  }
-
-  if (type === "rotate") {
-    angle = Math.atan2(dy, dx);
-  }
-
-  updateRect();
-  createHandles();
-});
 
 
 map.on("pointermove", e => {
   if (!activeHandle) return;
-
   const dx = e.coordinate[0] - center[0];
   const dy = e.coordinate[1] - center[1];
-
   const type = activeHandle.get("type");
-
   if (type === "move") {
     center = e.coordinate;
   }
-
   else if (type === "scale") {
     const ux = Math.cos(angle);
     const uy = Math.sin(angle);
-
     const vx = -uy;
     const vy = ux;
-
     const localL = dx * ux + dy * uy;
     const localW = dx * vx + dy * vy;
-
     halfL = Math.max(5, Math.abs(localL));
     halfW = Math.max(5, Math.abs(localW));
   }
-
   else if (type === "rotate") {
     angle = Math.atan2(dy, dx);
   }
-
   updateRect();
   createHandles();
 });
-
-
-
 
 
 map.on("pointerup", () => {
