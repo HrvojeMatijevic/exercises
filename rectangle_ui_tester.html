@@ -151,6 +151,7 @@
   let dragging = false;
   let pointerCoord = null;
   let resultFeatures = [];
+  let mapNavDisabled = false;
 
   const sketchRect = new ol.Feature();
   const sketchCenter = new ol.Feature();
@@ -258,6 +259,23 @@
     return [[x1,y1],[x2,y1],[x2,y2],[x1,y2],[x1,y1]];
   }
 
+
+  function setMapNavigationEnabled(enabled) {
+    if (mapNavDisabled === !enabled) return;
+    map.getInteractions().forEach((interaction) => {
+      if (
+        interaction instanceof ol.interaction.DragPan ||
+        interaction instanceof ol.interaction.MouseWheelZoom ||
+        interaction instanceof ol.interaction.DoubleClickZoom ||
+        interaction instanceof ol.interaction.PinchZoom ||
+        interaction instanceof ol.interaction.PinchRotate
+      ) {
+        interaction.setActive(enabled);
+      }
+    });
+    mapNavDisabled = !enabled;
+  }
+
   function setSketchPolygon(coords) {
     sketchRect.setGeometry(new ol.geom.Polygon([coords]));
   }
@@ -279,6 +297,7 @@
     startCorner = null;
     dragging = false;
     pointerCoord = null;
+    setMapNavigationEnabled(true);
     sketchRect.setGeometry(null);
     sketchCenter.setGeometry(null);
     sketchAxis.setGeometry(null);
@@ -330,27 +349,46 @@
     const mode = modeEl.value;
 
     if (mode === 'centerCorner' || mode === 'centerAxis') {
-      if (!center) {
-        center = evt.coordinate.slice();
-        setCenterMarker(center);
-        setStatus('Drag to shape rectangle');
-      }
+      // First tap only stores the center.
+      if (!center) return;
+
       dragging = true;
+      pointerCoord = evt.coordinate.slice();
+      setMapNavigationEnabled(false);
       updateSketch(evt.coordinate);
-    } else if (mode === 'twoCorners') {
+      return;
+    }
+
+    if (mode === 'twoCorners') {
       startCorner = evt.coordinate.slice();
       dragging = true;
+      pointerCoord = evt.coordinate.slice();
+      setMapNavigationEnabled(false);
       updateSketch(evt.coordinate);
     }
   });
 
   map.on('pointerdrag', (evt) => {
     if (!dragging) return;
+    evt.originalEvent.preventDefault?.();
     updateSketch(evt.coordinate);
   });
 
   map.on('pointerup', (evt) => {
+    const mode = modeEl.value;
+
+    if (mode === 'centerCorner' || mode === 'centerAxis') {
+      // First tap sets center. The next drag gesture creates the rectangle.
+      if (!center && !dragging) {
+        center = evt.coordinate.slice();
+        setCenterMarker(center);
+        setStatus('Now drag from the center to shape rectangle');
+        return;
+      }
+    }
+
     if (!dragging) return;
+
     updateSketch(evt.coordinate);
     finalizeCurrentShape();
   });
