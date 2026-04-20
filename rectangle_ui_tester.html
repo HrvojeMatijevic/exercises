@@ -129,7 +129,7 @@ layer.setStyle(f => {
 
   return new ol.style.Style({
     image: new ol.style.Circle({
-      radius: 10,
+      radius: 15,
       fill: new ol.style.Fill({ color: t==="move"?"blue":t==="scale"?"green":"orange" })
     })
   });
@@ -167,9 +167,10 @@ map.on("pointerdown", e => {
 
   if (mode !== "EDIT") return;
 
-  map.forEachFeatureAtPixel(e.pixel, f => {
-    if (f.get("type")) activeHandle = f;
-  });
+map.forEachFeatureAtPixel(e.pixel, f => {
+  if (f.get("type")) activeHandle = f;
+}, {
+  hitTolerance: 25
 });
 
 map.on("pointermove_OLD", e => {
