@@ -113,8 +113,7 @@
   const raster = new ol.layer.Tile({
     source: new ol.source.TileWMS({
       url: 'https://geoportal.dgu.hr/services/inspire/orthophoto_lidar_2022_2023/wms',
-      params: { LAYERS: 'OI.OrthoimageCoverage', TILED: true },
-      crossOrigin: 'anonymous'
+      params: { LAYERS: 'OI.OrthoimageCoverage', TILED: true }
     })
   });
 
@@ -123,6 +122,7 @@
 
   const resultSource = new ol.source.Vector();
   const resultLayer = new ol.layer.Vector({ source: resultSource });
+
 
   const map = new ol.Map({
     target: 'map',
