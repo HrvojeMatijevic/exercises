@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>OpenLayers Polygon Animated Benchmark v7</title>
+  <title>OpenLayers Polygon Benchmark - Live Updates During Navigation</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
 
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@10.6.1/ol.css">
@@ -139,7 +139,7 @@
 
     <button onclick="runAll()" class="wide">Run benchmark</button>
     <button onclick="resetAll()">Reset</button>
-    <button onclick="copyResults()">Copy results JSON</button>
+    <button onclick="copyResults()">Copy analysis CSV</button>
   </div>
 
   <div id="scoreBox">Final score: <span id="scoreValue" class="score"></span></div>
@@ -151,10 +151,8 @@ v6:
 - Deterministic generated data and deterministic scripted operations.
 - Background can be disabled; "none" is the clean baseline.
 - Navigation uses animated discrete transitions, not instantaneous jumps.
-- Pan step: animate center change and measure transition frame times.
-- Zoom step: animate zoom change and measure transition frame times.
-- Update: single-vertex geometry replacement burst and redraw, without restyling; moved vertex displacement is intentionally large for visibility.
-- Combined: geometry-update burst + animated pan step.
+- Load test: generate, add and initially render polygons.
+- Combined test: animated navigation while geometry updates are injected during the movement.
 - Final score is based on combined-test median p95 frame time.
 - v9 keeps geometry-update focus, uses larger single-vertex displacement for visible edits, and simplifies the result pane.</pre>
 
@@ -166,17 +164,15 @@ v6:
    ============================================================ */
 
 const BENCHMARK = {
-  panSteps: 10,
-  zoomSteps: 8,
-  updateSteps: 10,
-  combinedSteps: 10,
+  combinedSteps: 3,
 
   pauseMs: 250,
-  animationMs: 350,
+  animationMs: 650,
   renderTimeoutMs: 2500,
 
-  updatePct: 8,
-  burstRepeats: 4,
+  updatePct: 3,
+  burstRepeats: 1,
+  updateIntervalMs: 150,
 
   // visual/edit displacement for single-vertex changes, in map units (EPSG:3857 meters)
   vertexDisplacement: 12000,
@@ -191,7 +187,7 @@ overview: {
   editing: {
     centerLonLat: [16.2, 45.4],
     zoom: 12.3,
-    panStep: 5000,
+    panStep: 15000,
     zoomDelta: 0.8
   },
 
@@ -516,99 +512,7 @@ async function loadAndRenderOnce(params) {
   };
 }
 
-async function panBenchmark(params) {
-  setViewport(params);
-  await waitRender();
 
-  const cfg = getModeConfig(params);
-  const view = map.getView();
-  const center = view.getCenter();
-
-  const dirs = [
-    [1, 0], [-1, 0], [0, 1], [0, -1],
-    [1, 1], [-1, -1], [1, -1], [-1, 1],
-    [1, 0], [-1, 0]
-  ];
-
-  const events = [];
-
-  for (let i = 0; i < BENCHMARK.panSteps; i++) {
-    const d = dirs[i % dirs.length];
-    const target = [center[0] + d[0] * cfg.panStep, center[1] + d[1] * cfg.panStep];
-
-    const result = await measureFramesDuring(() => {
-      view.animate({
-        center: target,
-        duration: BENCHMARK.animationMs
-      });
-    }, BENCHMARK.animationMs);
-
-    events.push(result);
-    await sleep(BENCHMARK.pauseMs);
-  }
-
-  return summarizeTransitionEvents(events);
-}
-
-async function zoomBenchmark(params) {
-  setViewport(params);
-  await waitRender();
-
-  const cfg = getModeConfig(params);
-  const view = map.getView();
-  const baseZoom = cfg.zoom;
-  const dz = cfg.zoomDelta;
-  const zooms = [
-    baseZoom + dz,
-    baseZoom,
-    baseZoom - dz,
-    baseZoom,
-    baseZoom + dz,
-    baseZoom,
-    baseZoom - dz,
-    baseZoom
-  ];
-
-  const events = [];
-
-  for (let i = 0; i < BENCHMARK.zoomSteps; i++) {
-    const z = zooms[i % zooms.length];
-
-    const result = await measureFramesDuring(() => {
-      view.animate({
-        zoom: z,
-        duration: BENCHMARK.animationMs
-      });
-    }, BENCHMARK.animationMs);
-
-    events.push(result);
-    await sleep(BENCHMARK.pauseMs);
-  }
-
-  return summarizeTransitionEvents(events);
-}
-
-async function updateBenchmark(params) {
-  setViewport(params);
-  await waitRender();
-
-  const features = source.getFeatures();
-  const rng = mulberry32(params.seed + 999);
-  const updateCount = Math.max(1, Math.floor(features.length * BENCHMARK.updatePct / 100));
-  const events = [];
-
-  for (let i = 0; i < BENCHMARK.updateSteps; i++) {
-    const result = await measureFramesDuring(() => {
-      applyUpdateBatch(features, rng, updateCount);
-    }, BENCHMARK.animationMs);
-
-    result.updateCount = updateCount;
-    events.push(result);
-    await sleep(BENCHMARK.pauseMs);
-  }
-
-  return summarizeTransitionEvents(events);
-}
 
 async function combinedBenchmark(params) {
   setViewport(params);
@@ -628,23 +532,50 @@ async function combinedBenchmark(params) {
   ];
 
   const events = [];
+  const totalAnimationMs = BENCHMARK.animationMs * 3;
 
   for (let i = 0; i < BENCHMARK.combinedSteps; i++) {
     const d = dirs[i % dirs.length];
     const target = [center[0] + d[0] * cfg.panStep, center[1] + d[1] * cfg.panStep];
 
     const result = await measureFramesDuring(() => {
-      for (let b = 0; b < BENCHMARK.burstRepeats; b++) {
-        applyUpdateBatch(features, rng, updateCount);
-      }
-      view.animate({
-        center: target,
-        duration: BENCHMARK.animationMs
-      });
-    }, BENCHMARK.animationMs);
+      const zoomDelta = (i % 2 === 0) ? cfg.zoomDelta : -cfg.zoomDelta;
+      const targetZoom = cfg.zoom + zoomDelta;
 
-    result.updateCountPerRepeat = updateCount;
+      // Start navigation first.
+      view.animate(
+        {
+          zoom: targetZoom,
+          duration: BENCHMARK.animationMs
+        },
+        {
+          center: target,
+          duration: BENCHMARK.animationMs
+        },
+        {
+          zoom: cfg.zoom,
+          duration: BENCHMARK.animationMs
+        }
+      );
+
+      // Inject geometry updates while navigation is running.
+      // This simulates remote operations arriving during local map movement.
+      const updateTimer = setInterval(() => {
+        for (let b = 0; b < BENCHMARK.burstRepeats; b++) {
+          applyUpdateBatch(features, rng, updateCount);
+        }
+      }, BENCHMARK.updateIntervalMs);
+
+      setTimeout(() => {
+        clearInterval(updateTimer);
+      }, totalAnimationMs);
+    }, totalAnimationMs);
+
+    result.updateCountPerTick = updateCount;
+    result.updateIntervalMs = BENCHMARK.updateIntervalMs;
     result.burstRepeats = BENCHMARK.burstRepeats;
+    result.totalAnimationMs = totalAnimationMs;
+
     events.push(result);
     await sleep(BENCHMARK.pauseMs);
   }
@@ -678,7 +609,7 @@ function readParams() {
     runs: Number(document.getElementById("runs").value),
     seed: Number(document.getElementById("seed").value),
     updateMode: "single_vertex_geometry_replacement_no_restyle",
-    navigationMode: "animated_discrete_transition",
+    navigationMode: "animated_navigation_with_live_geometry_updates",
     deterministicMode: "same dataset and same scripted operations for every repeated run",
     fixedBenchmarkConstants: BENCHMARK,
     userAgent: navigator.userAgent,
@@ -697,31 +628,16 @@ async function runAll() {
   applyBackgroundMode();
 
   const loadRuns = [];
-  const panRuns = [];
-  const zoomRuns = [];
-  const updateRuns = [];
   const combinedRuns = [];
 
-  log("Running deterministic animated-transition benchmark...");
+  log("Running load + live-update combined benchmark...");
 
   for (let i = 1; i <= params.runs; i++) {
     log(`Run ${i}/${params.runs}: loading/rendering identical polygon dataset...`);
     const load = await loadAndRenderOnce(params);
     loadRuns.push(load);
 
-    log(`Run ${i}/${params.runs}: animated pan benchmark...`);
-    const pan = await panBenchmark(params);
-    panRuns.push(pan);
-
-    log(`Run ${i}/${params.runs}: animated zoom benchmark...`);
-    const zoom = await zoomBenchmark(params);
-    zoomRuns.push(zoom);
-
-    log(`Run ${i}/${params.runs}: update redraw benchmark...`);
-    const update = await updateBenchmark(params);
-    updateRuns.push(update);
-
-    log(`Run ${i}/${params.runs}: combined update-burst + animated pan benchmark...`);
+    log(`Run ${i}/${params.runs}: combined live-update navigation benchmark...`);
     await loadAndRenderOnce(params);
     const combined = await combinedBenchmark(params);
     combinedRuns.push(combined);
@@ -739,7 +655,7 @@ async function runAll() {
     finalScore,
     finalClass,
     finalScoreBasis: {
-      metric: "median p95 frame time from combined update-burst + animated pan test",
+      metric: "median p95 frame time from animated navigation with live geometry updates",
       medianP95FrameMs: combinedP95Stats.median,
       suffix: getModeSuffix(params),
       suffixMeaning: params.viewportMode === "editing"
@@ -748,9 +664,6 @@ async function runAll() {
     },
     raw: {
       loadRuns,
-      panRuns,
-      zoomRuns,
-      updateRuns,
       combinedRuns
     },
     summary: {
@@ -758,19 +671,10 @@ async function runAll() {
       addFeaturesMs: stats(loadRuns.map(r => r.addFeaturesMs)),
       initialRenderMs: stats(loadRuns.map(r => r.initialRenderMs)),
       totalLoadMs: stats(loadRuns.map(r => r.totalLoadMs)),
-      panP95FrameMs: stats(panRuns.map(r => r.p95FrameMs.median)),
-      panWorstFrameMs: stats(panRuns.map(r => r.worstFrameMs.median)),
-      zoomP95FrameMs: stats(zoomRuns.map(r => r.p95FrameMs.median)),
-      zoomWorstFrameMs: stats(zoomRuns.map(r => r.worstFrameMs.median)),
-      updateP95FrameMs: stats(updateRuns.map(r => r.p95FrameMs.median)),
-      updateWorstFrameMs: stats(updateRuns.map(r => r.worstFrameMs.median)),
       combinedP95FrameMs: combinedP95Stats,
       combinedWorstFrameMs: stats(combinedRuns.map(r => r.worstFrameMs.median)),
       combinedMeanFps: stats(combinedRuns.map(r => r.meanFps.median)),
       timeoutCounts: {
-        pan: panRuns.reduce((a, r) => a + r.timeoutCount, 0),
-        zoom: zoomRuns.reduce((a, r) => a + r.timeoutCount, 0),
-        update: updateRuns.reduce((a, r) => a + r.timeoutCount, 0),
         combined: combinedRuns.reduce((a, r) => a + r.timeoutCount, 0)
       }
     }
@@ -795,22 +699,26 @@ function displaySummary(result) {
   lines.push(`Mode: ${result.params.viewportMode} (${result.finalScoreBasis.suffixMeaning})`);
   lines.push(`Complexity: ${result.params.complexity}, polygons: ${result.params.count}, runs: ${result.params.runs}`);
   lines.push(`Background: ${result.params.backgroundMode}`);
+  lines.push("");
+  lines.push("Combined scenario:");
+  lines.push(`Animated navigation with live geometry updates every ${BENCHMARK.updateIntervalMs} ms`);
+  lines.push(`Update fraction per tick: ${BENCHMARK.updatePct}%`);
+  lines.push(`Animation sequence per step: zoom → pan → zoom back`);
+  lines.push("");
   lines.push(`Combined p95 frame: median=${fmtNumber(s.combinedP95FrameMs.median)} ms, mean=${fmtNumber(s.combinedP95FrameMs.mean)} ms`);
   lines.push(`Combined worst frame: median=${fmtNumber(s.combinedWorstFrameMs.median)} ms`);
   lines.push(`Combined mean FPS: median=${fmtNumber(s.combinedMeanFps.median)}`);
   lines.push("");
   lines.push(`Load total: median=${fmtNumber(s.totalLoadMs.median)} ms`);
-  lines.push(`Pan p95: median=${fmtNumber(s.panP95FrameMs.median)} ms`);
-  lines.push(`Zoom p95: median=${fmtNumber(s.zoomP95FrameMs.median)} ms`);
-  lines.push(`Update p95: median=${fmtNumber(s.updateP95FrameMs.median)} ms`);
+  lines.push(`Initial render: median=${fmtNumber(s.initialRenderMs.median)} ms`);
 
   if (s.timeoutCounts) {
     lines.push("");
-    lines.push(`Render wait timeouts: pan=${s.timeoutCounts.pan}, zoom=${s.timeoutCounts.zoom}, update=${s.timeoutCounts.update}, combined=${s.timeoutCounts.combined}`);
+    lines.push(`Render wait timeouts: combined=${s.timeoutCounts.combined}`);
   }
 
   lines.push("");
-  lines.push("Full parameters, metadata and raw per-event values are in copied JSON.");
+  lines.push("Analysis-ready one-row CSV is copied by the button.");
 
   output.textContent = lines.join("\n");
 }
@@ -828,19 +736,83 @@ function resetAll() {
   output.textContent = "Ready.";
 }
 
+
+
+function csvEscape(value) {
+  if (value === null || value === undefined) return "";
+  const s = String(value);
+  if (s.includes(",") || s.includes('"') || s.includes("\n")) {
+    return '"' + s.replaceAll('"', '""') + '"';
+  }
+  return s;
+}
+
+function makeAnalysisRow(result) {
+  const s = result.summary;
+  const p = result.params;
+  const c = p.fixedBenchmarkConstants || {};
+
+  return {
+    timestamp: result.timestamp,
+    finalScore: result.finalScore,
+    finalClass: result.finalClass,
+    scoreSuffix: result.finalScoreBasis.suffix,
+    polygonCount: p.count,
+    complexity: p.complexity,
+    viewportMode: p.viewportMode,
+    backgroundMode: p.backgroundMode,
+    runs: p.runs,
+    seed: p.seed,
+    updatePct: c.updatePct,
+    updateIntervalMs: c.updateIntervalMs,
+    burstRepeats: c.burstRepeats,
+    combinedSteps: c.combinedSteps,
+    animationMs: c.animationMs,
+    browserUserAgent: p.userAgent,
+    hardwareConcurrency: p.hardwareConcurrency,
+    devicePixelRatio: p.devicePixelRatio,
+    viewportWidth: p.viewport.width,
+    viewportHeight: p.viewport.height,
+    olVersion: p.olVersion,
+    loadTotalMedianMs: s.totalLoadMs.median,
+    loadTotalMeanMs: s.totalLoadMs.mean,
+    initialRenderMedianMs: s.initialRenderMs.median,
+    initialRenderMeanMs: s.initialRenderMs.mean,
+    generationMedianMs: s.generationMs.median,
+    addFeaturesMedianMs: s.addFeaturesMs.median,
+    combinedP95MedianMs: s.combinedP95FrameMs.median,
+    combinedP95MeanMs: s.combinedP95FrameMs.mean,
+    combinedP95MinMs: s.combinedP95FrameMs.min,
+    combinedP95MaxMs: s.combinedP95FrameMs.max,
+    combinedWorstMedianMs: s.combinedWorstFrameMs.median,
+    combinedMeanFpsMedian: s.combinedMeanFps.median,
+    combinedTimeouts: s.timeoutCounts.combined
+  };
+}
+
+function makeAnalysisCsv(result) {
+  const row = makeAnalysisRow(result);
+  const headers = Object.keys(row);
+  const values = headers.map(h => csvEscape(row[h]));
+  return headers.join(",") + "\n" + values.join(",");
+}
+
 async function copyResults() {
   if (!lastResults) {
     output.textContent += "\nNo results to copy yet.";
     return;
   }
-  const text = JSON.stringify(lastResults, null, 2);
+
+  const text = makeAnalysisCsv(lastResults);
+
   try {
     await navigator.clipboard.writeText(text);
-    output.textContent += "\nCopied full JSON results to clipboard.";
+    output.textContent += "\nCopied analysis CSV row to clipboard.";
   } catch (e) {
-    output.textContent += "\nClipboard failed. Full JSON:\n" + text;
+    output.textContent += "\nClipboard failed. Analysis CSV:\n" + text;
   }
 }
+
 </script>
 </body>
 </html>
