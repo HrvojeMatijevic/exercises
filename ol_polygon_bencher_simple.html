@@ -217,7 +217,7 @@ setTimeout(() => map.updateSize(), 0);
     </label>
   </div>
 
-  <div id="scoreBox">Combined p95: <span id="scoreValue" class="score"></span></div>
+  <div id="scoreBox">Navigation/update p95: <span id="scoreValue" class="score"></span></div>
   <div id="map"></div>
   <pre id="output">Ready.</pre>
 
@@ -448,7 +448,9 @@ function generateFeatures(count, complexity, seed) {
 
   for (let i = 0; i < count; i++) {
     const [cx, cy] = randomCenter(rng);
-    const base = 1200 + rng() * 5000;
+    //const base = 1200 + rng() * 5000;
+    const densityScale = Math.sqrt(5000 / count);
+    const base = (1200 + rng() * 5000) * densityScale;
     const coords = makeIrregular(cx, cy, base, vertices, rng);
 
     const feature = new ol.Feature({ geometry: new ol.geom.Polygon(coords) });
