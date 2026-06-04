@@ -1,0 +1,493 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>OpenLayers Polygon Benchmark - Conference Version</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@10.6.1/ol.css">
+  <script src="https://cdn.jsdelivr.net/npm/ol@10.6.1/dist/ol.js"></script>
+  <style>
+    html, body { margin:0; height:100%; font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+    body { display:flex; flex-direction:column; }
+    #controls { background:#f3f3f3; border-bottom:1px solid #ccc; padding:8px; display:grid; grid-template-columns:repeat(auto-fit,minmax(145px,1fr)); gap:8px; align-items:end; font-size:14px; }
+    label { display:flex; flex-direction:column; gap:3px; }
+    select, button { font-size:16px; padding:7px; min-height:38px; box-sizing:border-box; }
+    button { cursor:pointer; }
+    #headline { background:#fff8d8; border-bottom:1px solid #d6c36a; padding:10px 12px; display:none; font-weight:700; }
+    #headline .metric { font-size:30px; font-weight:900; margin-left:8px; }
+    #map { flex:1; min-height:300px; background:#fafafa; }
+    #output { background:#fff; border-top:1px solid #ccc; padding:8px; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:12px; max-height:30vh; overflow:auto; white-space:pre-wrap; }
+    .wide { grid-column:span 2; }
+    @media (max-width:650px) { #controls { grid-template-columns:1fr 1fr; } .wide { grid-column:span 2; } }
+  </style>
+</head>
+<body>
+  <div id="controls">
+    <label>Polygon count
+      <select id="count">
+        <option value="5000">5K</option>
+        <option value="10000">10K</option>
+        <option value="15000">15K</option>
+        <option value="20000">20K</option>
+        <option value="25000">25K</option>
+        <option value="30000">30K</option>
+        <option value="40000">40K</option>
+        <option value="50000">50K</option>
+      </select>
+    </label>
+    <label>Viewport mode
+      <select id="viewportMode">
+        <option value="overview">Overview / unrestricted</option>
+        <option value="editing">Editing / zoom-restricted</option>
+      </select>
+    </label>
+    <label>Background
+      <select id="backgroundMode" onchange="applyBackgroundMode()">
+        <option value="none">none / vector only</option>
+        <option value="osm">OSM tiles</option>
+      </select>
+    </label>
+    <label>Runs
+      <select id="runs">
+        <option value="3">3</option>
+        <option value="5" selected>5</option>
+        <option value="10">10</option>
+      </select>
+    </label>
+    <button onclick="runAll()" class="wide">Run benchmark</button>
+    <button onclick="resetAll()">Reset</button>
+    <button onclick="copyResults()">Copy JSON</button>
+  </div>
+
+  <div id="headline">Combined p95 frame time: <span id="headlineMetric" class="metric"></span></div>
+  <div id="map"></div>
+  <pre id="output">Ready.
+
+Conference version:
+- Fixed seed: 12345.
+- Fixed polygon complexity: 80 vertices.
+- Polygon count selectable in fixed steps.
+- No A-E classification.
+- Main reported metric: combined-test p95 frame time.
+- Full raw measurements and metadata are kept in copied JSON.</pre>
+
+<script>
+"use strict";
+
+const BENCHMARK = {
+  seed: 12345,
+  complexity: "complex",
+  vertices: 80,
+  panSteps: 10,
+  zoomSteps: 8,
+  updateSteps: 10,
+  combinedSteps: 10,
+  pauseMs: 250,
+  animationMs: 350,
+  renderTimeoutMs: 2500,
+  updatePct: 8,
+  burstRepeats: 4,
+  vertexDisplacementEditing: 12000,
+  vertexDisplacementOverview: 120000,
+  overview: { centerLonLat:[16.2,45.4], zoom:8.5, panStep:120000, zoomDelta:1.0 },
+  editing: { centerLonLat:[16.2,45.4], zoom:12.3, panStep:5000, zoomDelta:0.8 }
+};
+
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function() {
+    a += 0x6D2B79F5;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const source = new ol.source.Vector({ useSpatialIndex:true });
+
+const normalStyle = new ol.style.Style({
+  fill: new ol.style.Fill({ color:"rgba(40,110,210,0.22)" }),
+  stroke: new ol.style.Stroke({ color:"rgba(20,70,160,0.75)", width:1 })
+});
+
+const osmLayer = new ol.layer.Tile({ source:new ol.source.OSM(), visible:false });
+
+const vectorLayer = new ol.layer.Vector({
+  source,
+  style: normalStyle,
+  updateWhileAnimating:true,
+  updateWhileInteracting:true
+});
+
+const map = new ol.Map({
+  target:"map",
+  layers:[osmLayer, vectorLayer],
+  view:new ol.View({ center:ol.proj.fromLonLat(BENCHMARK.overview.centerLonLat), zoom:BENCHMARK.overview.zoom })
+});
+
+const output = document.getElementById("output");
+const headline = document.getElementById("headline");
+const headlineMetric = document.getElementById("headlineMetric");
+let lastResults = null;
+
+function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+
+function waitRender(timeoutMs = BENCHMARK.renderTimeoutMs) {
+  return new Promise(resolve => {
+    let done = false;
+    const finish = timedOut => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      resolve({ timedOut });
+    };
+    const timer = setTimeout(() => finish(true), timeoutMs);
+    map.once("rendercomplete", () => finish(false));
+    map.render();
+  });
+}
+
+function stats(values) {
+  if (!values.length) return { n:0, min:null, max:null, mean:null, median:null, p95:null };
+  const sorted = [...values].sort((a,b) => a-b);
+  const sum = values.reduce((a,b) => a+b, 0);
+  const idx95 = Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95));
+  const mid = Math.floor(sorted.length / 2);
+  return { n:values.length, min:sorted[0], max:sorted[sorted.length-1], mean:sum/values.length,
+    median: sorted.length % 2 ? sorted[mid] : (sorted[mid-1] + sorted[mid]) / 2, p95:sorted[idx95] };
+}
+
+function fmtNumber(x, digits=1) { return x === null || x === undefined ? "n/a" : Number(x).toFixed(digits); }
+function log(text) { output.textContent = text; }
+function getModeConfig(params) { return params.viewportMode === "editing" ? BENCHMARK.editing : BENCHMARK.overview; }
+function applyBackgroundMode() { osmLayer.setVisible(document.getElementById("backgroundMode").value === "osm"); }
+
+function randomCenter(rng) {
+  const lon = 13.4 + rng() * 6.0;
+  const lat = 42.4 + rng() * 4.2;
+  return ol.proj.fromLonLat([lon, lat]);
+}
+
+function makeIrregular(cx, cy, radius, vertices, rng) {
+  const ring = [];
+  for (let i=0; i<vertices; i++) {
+    const a = Math.PI * 2 * i / vertices;
+    const localR = radius * (0.55 + rng() * 0.65);
+    ring.push([cx + Math.cos(a) * localR, cy + Math.sin(a) * localR]);
+  }
+  ring.push(ring[0].slice());
+  return [ring];
+}
+
+function generateFeatures(count, seed) {
+  const rng = mulberry32(seed);
+  const features = new Array(count);
+  for (let i=0; i<count; i++) {
+    const [cx, cy] = randomCenter(rng);
+    const base = 1200 + rng() * 5000;
+    const coords = makeIrregular(cx, cy, base, BENCHMARK.vertices, rng);
+    const f = new ol.Feature({ geometry:new ol.geom.Polygon(coords) });
+    f.setId(i);
+    features[i] = f;
+  }
+  return features;
+}
+
+function replaceOneVertex(feature, rng, params) {
+  const coords = feature.getGeometry().getCoordinates();
+  const ring = coords[0].map(p => [p[0], p[1]]);
+  const editableVertexCount = ring.length - 1;
+  const vertexIndex = Math.floor(rng() * editableVertexCount);
+  const displacement = params.viewportMode === "overview" ? BENCHMARK.vertexDisplacementOverview : BENCHMARK.vertexDisplacementEditing;
+  ring[vertexIndex][0] += (rng() - 0.5) * displacement;
+  ring[vertexIndex][1] += (rng() - 0.5) * displacement;
+  if (vertexIndex === 0) ring[ring.length - 1] = ring[0].slice();
+  feature.setGeometry(new ol.geom.Polygon([ring]));
+}
+
+function applyUpdateBatch(features, rng, updateCount, params) {
+  for (let i=0; i<updateCount; i++) {
+    const idx = Math.floor(rng() * features.length);
+    replaceOneVertex(features[idx], rng, params);
+  }
+  source.changed();
+}
+
+async function measureFramesDuring(actionFn, expectedDurationMs) {
+  const frameTimes = [];
+  let prev = performance.now();
+  let running = true;
+
+  function frame(now) {
+    if (!running) return;
+    frameTimes.push(now - prev);
+    prev = now;
+    requestAnimationFrame(frame);
+  }
+
+  requestAnimationFrame(frame);
+  const t0 = performance.now();
+  actionFn();
+  await sleep(expectedDurationMs + 120);
+  const renderWait = await waitRender();
+  const t1 = performance.now();
+  running = false;
+
+  const cleaned = frameTimes.slice(1);
+  const s = stats(cleaned);
+  return { durationMs:t1-t0, frameCount:cleaned.length, frameTimesMs:cleaned, frameStats:s,
+    meanFps:s.mean ? 1000/s.mean : null, renderTimedOut:renderWait.timedOut };
+}
+
+function setViewport(params) {
+  const cfg = getModeConfig(params);
+  const view = map.getView();
+  view.cancelAnimations();
+  view.setCenter(ol.proj.fromLonLat(cfg.centerLonLat));
+  view.setZoom(cfg.zoom);
+}
+
+async function loadAndRenderOnce(params) {
+  source.clear(true);
+  const t0 = performance.now();
+  const features = generateFeatures(params.count, BENCHMARK.seed);
+  const t1 = performance.now();
+  source.addFeatures(features);
+  setViewport(params);
+  const t2 = performance.now();
+  await waitRender();
+  const t3 = performance.now();
+  return { generationMs:t1-t0, addFeaturesMs:t2-t1, initialRenderMs:t3-t2, totalLoadMs:t3-t0 };
+}
+
+async function panBenchmark(params) {
+  setViewport(params);
+  await waitRender();
+  const cfg = getModeConfig(params);
+  const view = map.getView();
+  const center = view.getCenter();
+  const dirs = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[-1,-1],[1,-1],[-1,1],[1,0],[-1,0]];
+  const events = [];
+  for (let i=0; i<BENCHMARK.panSteps; i++) {
+    const d = dirs[i % dirs.length];
+    const target = [center[0] + d[0] * cfg.panStep, center[1] + d[1] * cfg.panStep];
+    const r = await measureFramesDuring(() => view.animate({ center:target, duration:BENCHMARK.animationMs }), BENCHMARK.animationMs);
+    events.push(r);
+    await sleep(BENCHMARK.pauseMs);
+  }
+  return summarizeEvents(events);
+}
+
+async function zoomBenchmark(params) {
+  setViewport(params);
+  await waitRender();
+  const cfg = getModeConfig(params);
+  const view = map.getView();
+  const base = cfg.zoom;
+  const dz = cfg.zoomDelta;
+  const zooms = [base+dz, base, base-dz, base, base+dz, base, base-dz, base];
+  const events = [];
+  for (let i=0; i<BENCHMARK.zoomSteps; i++) {
+    const z = zooms[i % zooms.length];
+    const r = await measureFramesDuring(() => view.animate({ zoom:z, duration:BENCHMARK.animationMs }), BENCHMARK.animationMs);
+    events.push(r);
+    await sleep(BENCHMARK.pauseMs);
+  }
+  return summarizeEvents(events);
+}
+
+async function updateBenchmark(params) {
+  setViewport(params);
+  await waitRender();
+  const features = source.getFeatures();
+  const rng = mulberry32(BENCHMARK.seed + 999);
+  const updateCount = Math.max(1, Math.floor(features.length * BENCHMARK.updatePct / 100));
+  const events = [];
+  for (let i=0; i<BENCHMARK.updateSteps; i++) {
+    const r = await measureFramesDuring(() => applyUpdateBatch(features, rng, updateCount, params), BENCHMARK.animationMs);
+    r.updateCount = updateCount;
+    events.push(r);
+    await sleep(BENCHMARK.pauseMs);
+  }
+  return summarizeEvents(events);
+}
+
+async function combinedBenchmark(params) {
+  setViewport(params);
+  await waitRender();
+  const cfg = getModeConfig(params);
+  const features = source.getFeatures();
+  const view = map.getView();
+  const center = view.getCenter();
+  const rng = mulberry32(BENCHMARK.seed + 2025);
+  const updateCount = Math.max(1, Math.floor(features.length * BENCHMARK.updatePct / 100));
+  const dirs = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[-1,-1],[1,-1],[-1,1],[1,0],[-1,0]];
+  const events = [];
+
+  for (let i=0; i<BENCHMARK.combinedSteps; i++) {
+    const d = dirs[i % dirs.length];
+    const target = [center[0] + d[0] * cfg.panStep, center[1] + d[1] * cfg.panStep];
+    const r = await measureFramesDuring(() => {
+      for (let b=0; b<BENCHMARK.burstRepeats; b++) applyUpdateBatch(features, rng, updateCount, params);
+      view.animate({ center:target, duration:BENCHMARK.animationMs });
+    }, BENCHMARK.animationMs);
+    r.updateCountPerRepeat = updateCount;
+    r.burstRepeats = BENCHMARK.burstRepeats;
+    events.push(r);
+    await sleep(BENCHMARK.pauseMs);
+  }
+  return summarizeEvents(events);
+}
+
+function summarizeEvents(events) {
+  return {
+    eventCount:events.length,
+    timeoutCount:events.filter(e => e.renderTimedOut).length,
+    events,
+    medianFrameMs:stats(events.map(e => e.frameStats.median)),
+    p95FrameMs:stats(events.map(e => e.frameStats.p95)),
+    worstFrameMs:stats(events.map(e => e.frameStats.max)),
+    meanFps:stats(events.map(e => e.meanFps)),
+    durationMs:stats(events.map(e => e.durationMs))
+  };
+}
+
+function readParams() {
+  return {
+    count:Number(document.getElementById("count").value),
+    complexity:BENCHMARK.complexity,
+    vertices:BENCHMARK.vertices,
+    viewportMode:document.getElementById("viewportMode").value,
+    backgroundMode:document.getElementById("backgroundMode").value,
+    runs:Number(document.getElementById("runs").value),
+    seed:BENCHMARK.seed,
+    updateMode:"single_vertex_geometry_replacement_no_restyle",
+    navigationMode:"animated_discrete_transition",
+    deterministicMode:"fixed seed and fixed scripted operations for all tests",
+    fixedBenchmarkConstants:BENCHMARK,
+    userAgent:navigator.userAgent,
+    hardwareConcurrency:navigator.hardwareConcurrency || null,
+    devicePixelRatio:window.devicePixelRatio,
+    viewport:{ width:window.innerWidth, height:window.innerHeight },
+    olVersion:ol.VERSION || "unknown"
+  };
+}
+
+async function runAll() {
+  const params = readParams();
+  applyBackgroundMode();
+
+  const loadRuns = [], panRuns = [], zoomRuns = [], updateRuns = [], combinedRuns = [];
+  log("Running conference benchmark...");
+
+  for (let i=1; i<=params.runs; i++) {
+    log(`Run ${i}/${params.runs}: loading/rendering ${params.count} polygons...`);
+    loadRuns.push(await loadAndRenderOnce(params));
+
+    log(`Run ${i}/${params.runs}: animated pan benchmark...`);
+    panRuns.push(await panBenchmark(params));
+
+    log(`Run ${i}/${params.runs}: animated zoom benchmark...`);
+    zoomRuns.push(await zoomBenchmark(params));
+
+    log(`Run ${i}/${params.runs}: geometry update benchmark...`);
+    updateRuns.push(await updateBenchmark(params));
+
+    log(`Run ${i}/${params.runs}: combined geometry-update burst + animated pan benchmark...`);
+    await loadAndRenderOnce(params);
+    combinedRuns.push(await combinedBenchmark(params));
+
+    await sleep(300);
+  }
+
+  const combinedP95Stats = stats(combinedRuns.map(r => r.p95FrameMs.median));
+
+  lastResults = {
+    timestamp:new Date().toISOString(),
+    params,
+    mainMetric:{ name:"combined median p95 frame time", valueMs:combinedP95Stats.median, meanMs:combinedP95Stats.mean, minMs:combinedP95Stats.min, maxMs:combinedP95Stats.max },
+    raw:{ loadRuns, panRuns, zoomRuns, updateRuns, combinedRuns },
+    summary:{
+      generationMs:stats(loadRuns.map(r => r.generationMs)),
+      addFeaturesMs:stats(loadRuns.map(r => r.addFeaturesMs)),
+      initialRenderMs:stats(loadRuns.map(r => r.initialRenderMs)),
+      totalLoadMs:stats(loadRuns.map(r => r.totalLoadMs)),
+      panP95FrameMs:stats(panRuns.map(r => r.p95FrameMs.median)),
+      panWorstFrameMs:stats(panRuns.map(r => r.worstFrameMs.median)),
+      zoomP95FrameMs:stats(zoomRuns.map(r => r.p95FrameMs.median)),
+      zoomWorstFrameMs:stats(zoomRuns.map(r => r.worstFrameMs.median)),
+      updateP95FrameMs:stats(updateRuns.map(r => r.p95FrameMs.median)),
+      updateWorstFrameMs:stats(updateRuns.map(r => r.worstFrameMs.median)),
+      combinedP95FrameMs:combinedP95Stats,
+      combinedWorstFrameMs:stats(combinedRuns.map(r => r.worstFrameMs.median)),
+      combinedMeanFps:stats(combinedRuns.map(r => r.meanFps.median)),
+      timeoutCounts:{
+        pan:panRuns.reduce((a,r) => a + r.timeoutCount, 0),
+        zoom:zoomRuns.reduce((a,r) => a + r.timeoutCount, 0),
+        update:updateRuns.reduce((a,r) => a + r.timeoutCount, 0),
+        combined:combinedRuns.reduce((a,r) => a + r.timeoutCount, 0)
+      }
+    }
+  };
+
+  displaySummary(lastResults);
+}
+
+function displaySummary(result) {
+  const s = result.summary;
+  headline.style.display = "block";
+  headlineMetric.textContent = `${fmtNumber(result.mainMetric.valueMs)} ms`;
+
+  const lines = [];
+  lines.push("Main metric:");
+  lines.push(`Combined-test p95 frame time: ${fmtNumber(result.mainMetric.valueMs)} ms`);
+  lines.push("");
+  lines.push(`Polygons: ${result.params.count}`);
+  lines.push(`Complexity: fixed ${result.params.vertices}-vertex irregular polygons`);
+  lines.push(`Mode: ${result.params.viewportMode}`);
+  lines.push(`Background: ${result.params.backgroundMode}`);
+  lines.push(`Runs: ${result.params.runs}`);
+  lines.push("");
+  lines.push(`Combined p95 frame: mean=${fmtNumber(s.combinedP95FrameMs.mean)} ms, median=${fmtNumber(s.combinedP95FrameMs.median)} ms`);
+  lines.push(`Combined worst frame: median=${fmtNumber(s.combinedWorstFrameMs.median)} ms`);
+  lines.push(`Combined mean FPS: median=${fmtNumber(s.combinedMeanFps.median)}`);
+  lines.push("");
+  lines.push(`Load total: median=${fmtNumber(s.totalLoadMs.median)} ms`);
+  lines.push(`Pan p95: median=${fmtNumber(s.panP95FrameMs.median)} ms`);
+  lines.push(`Zoom p95: median=${fmtNumber(s.zoomP95FrameMs.median)} ms`);
+  lines.push(`Update p95: median=${fmtNumber(s.updateP95FrameMs.median)} ms`);
+  lines.push("");
+  lines.push(`Render wait timeouts: pan=${s.timeoutCounts.pan}, zoom=${s.timeoutCounts.zoom}, update=${s.timeoutCounts.update}, combined=${s.timeoutCounts.combined}`);
+  lines.push("");
+  lines.push("Full parameters, metadata and raw per-event values are in copied JSON.");
+  output.textContent = lines.join("\n");
+}
+
+function resetAll() {
+  source.clear(true);
+  lastResults = null;
+  headline.style.display = "none";
+  headlineMetric.textContent = "";
+  const params = readParams();
+  applyBackgroundMode();
+  setViewport(params);
+  output.textContent = "Ready.";
+}
+
+async function copyResults() {
+  if (!lastResults) {
+    output.textContent += "\nNo results to copy yet.";
+    return;
+  }
+  const text = JSON.stringify(lastResults, null, 2);
+  try {
+    await navigator.clipboard.writeText(text);
+    output.textContent += "\nCopied full JSON results to clipboard.";
+  } catch (e) {
+    output.textContent += "\nClipboard failed. Full JSON:\n" + text;
+  }
+}
+</script>
+</body>
+</html>
