@@ -29,7 +29,7 @@ setTimeout(() => map.updateSize(), 0);
       border-bottom: 1px solid #ccc;
       padding: 8px;
       display: grid;
-      grid-template-columns: 1fr 1fr 1fr;
+      grid-template-columns: repeat(4, 1fr);
       gap: 8px;
       align-items: stretch;
       max-width: 100vw;
@@ -116,7 +116,7 @@ setTimeout(() => map.updateSize(), 0);
 
     @media (max-width: 650px) {
       #topbar {
-        grid-template-columns: 1fr 1fr 1fr;
+        grid-template-columns: repeat(4, 1fr);
         padding: 6px;
         gap: 6px;
       }
@@ -130,10 +130,6 @@ setTimeout(() => map.updateSize(), 0);
 
       #controls .wide {
         grid-column: span 2;
-      }
-
-      #controls button {
-        display: none;
       }
 
       input, select, button {
@@ -163,10 +159,6 @@ setTimeout(() => map.updateSize(), 0);
     }
 
     @media (min-width: 651px) {
-      #topbar {
-        display: none;
-      }
-
       #controls.collapsed {
         display: grid;
       }
@@ -178,6 +170,7 @@ setTimeout(() => map.updateSize(), 0);
   <div id="topbar">
     <button onclick="runAll()">Run</button>
     <button onclick="toggleSettings()">Settings</button>
+    <button onclick="resetAll()">Reset</button>
     <button onclick="copyResults()">Copy CSV</button>
   </div>
 
