@@ -779,14 +779,14 @@ function displaySummary(result) {
   lines.push(`Complexity: ${result.params.complexity}, polygons: ${result.params.count}, runs: ${result.params.runs}`);
   lines.push(`Background: ${result.params.backgroundMode}`);
   lines.push("");
-  lines.push("Combined scenario:");
+  lines.push("Navigation/update scenario:");
   lines.push(`Animated navigation with live geometry updates every ${BENCHMARK.updateIntervalMs} ms`);
   lines.push(`Update fraction per tick: ${BENCHMARK.updatePct}%`);
   lines.push(`Animation sequence per step: zoom → pan → zoom back`);
   lines.push("");
-  lines.push(`Combined p95 frame: median=${fmtNumber(s.combinedP95FrameMs.median)} ms, mean=${fmtNumber(s.combinedP95FrameMs.mean)} ms`);
-  lines.push(`Combined worst frame: median=${fmtNumber(s.combinedWorstFrameMs.median)} ms`);
-  lines.push(`Combined mean FPS: median=${fmtNumber(s.combinedMeanFps.median)}`);
+  lines.push(`Navigation/update p95 frame: median=${fmtNumber(s.combinedP95FrameMs.median)} ms, mean=${fmtNumber(s.combinedP95FrameMs.mean)} ms`);
+  lines.push(`Navigation/update worst frame: median=${fmtNumber(s.combinedWorstFrameMs.median)} ms`);
+  lines.push(`Navigation/update mean FPS: median=${fmtNumber(s.combinedMeanFps.median)}`);
   lines.push("");
   lines.push(`Load total: median=${fmtNumber(s.totalLoadMs.median)} ms`);
   lines.push(`Initial render: median=${fmtNumber(s.initialRenderMs.median)} ms`);
@@ -869,13 +869,13 @@ function makeAnalysisRow(result) {
     initialRenderMeanMs: s.initialRenderMs.mean,
     generationMedianMs: s.generationMs.median,
     addFeaturesMedianMs: s.addFeaturesMs.median,
-    combinedP95MedianMs: s.combinedP95FrameMs.median,
-    combinedP95MeanMs: s.combinedP95FrameMs.mean,
-    combinedP95MinMs: s.combinedP95FrameMs.min,
-    combinedP95MaxMs: s.combinedP95FrameMs.max,
-    combinedWorstMedianMs: s.combinedWorstFrameMs.median,
-    combinedMeanFpsMedian: s.combinedMeanFps.median,
-    combinedTimeouts: s.timeoutCounts.combined
+    navUpdateP95MedianMs: s.combinedP95FrameMs.median,
+    navUpdateP95MeanMs: s.combinedP95FrameMs.mean,
+    navUpdateP95MinMs: s.combinedP95FrameMs.min,
+    navUpdateP95MaxMs: s.combinedP95FrameMs.max,
+    navUpdateWorstMedianMs: s.combinedWorstFrameMs.median,
+    navUpdateMeanFpsMedian: s.combinedMeanFps.median,
+    navUpdateTimeouts: s.timeoutCounts.combined
   };
 }
 
