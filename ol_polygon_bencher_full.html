@@ -1,0 +1,846 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>OpenLayers Polygon Animated Benchmark v7</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@10.6.1/ol.css">
+  <script src="https://cdn.jsdelivr.net/npm/ol@10.6.1/dist/ol.js"></script>
+
+  <style>
+    html, body {
+      margin: 0;
+      height: 100%;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    body {
+      display: flex;
+      flex-direction: column;
+    }
+
+    #controls {
+      background: #f3f3f3;
+      border-bottom: 1px solid #ccc;
+      padding: 8px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+      gap: 8px;
+      align-items: end;
+      font-size: 14px;
+    }
+
+    label {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    input, select, button {
+      font-size: 16px;
+      padding: 7px;
+      min-height: 38px;
+      box-sizing: border-box;
+    }
+
+    button {
+      cursor: pointer;
+    }
+
+    #map {
+      flex: 1;
+      min-height: 300px;
+      background: #fafafa;
+    }
+
+    #scoreBox {
+      background: #fff8d8;
+      border-bottom: 1px solid #d6c36a;
+      padding: 10px 12px;
+      font-size: 18px;
+      font-weight: 700;
+      display: none;
+    }
+
+    #scoreBox .score {
+      font-size: 32px;
+      font-weight: 900;
+      margin-left: 8px;
+    }
+
+    #output {
+      background: #fff;
+      border-top: 1px solid #ccc;
+      padding: 8px;
+      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+      font-size: 12px;
+      max-height: 38vh;
+      overflow: auto;
+      white-space: pre-wrap;
+    }
+
+    .wide {
+      grid-column: span 2;
+    }
+
+    @media (max-width: 650px) {
+      #controls {
+        grid-template-columns: 1fr 1fr;
+      }
+      .wide {
+        grid-column: span 2;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <div id="controls">
+    <label>
+      Polygon count
+      <input id="count" type="number" value="5000" min="100" step="100">
+    </label>
+
+    <label>
+      Complexity
+      <select id="complexity">
+        <option value="simple">simple rectangles</option>
+        <option value="medium">medium irregular, 20 vertices</option>
+        <option value="complex">complex irregular, 80 vertices</option>
+      </select>
+    </label>
+
+    <label>
+      Viewport mode
+      <select id="viewportMode">
+        <option value="overview">Overview / unrestricted (-)</option>
+        <option value="editing">Editing / zoom-restricted (+)</option>
+      </select>
+    </label>
+
+    <label>
+      Background
+      <select id="backgroundMode" onchange="applyBackgroundMode()">
+        <option value="none">none / vector only</option>
+        <option value="osm">OSM tiles</option>
+      </select>
+    </label>
+
+    <label>
+      Runs
+      <input id="runs" type="number" value="5" min="1" max="30">
+    </label>
+
+    <label>
+      Seed
+      <input id="seed" type="number" value="12345">
+    </label>
+
+    <button onclick="runAll()" class="wide">Run benchmark</button>
+    <button onclick="resetAll()">Reset</button>
+    <button onclick="copyResults()">Copy results JSON</button>
+  </div>
+
+  <div id="scoreBox">Final score: <span id="scoreValue" class="score"></span></div>
+  <div id="map"></div>
+  <pre id="output">Ready.
+
+v6:
+- Polygon-only OpenLayers benchmark.
+- Deterministic generated data and deterministic scripted operations.
+- Background can be disabled; "none" is the clean baseline.
+- Navigation uses animated discrete transitions, not instantaneous jumps.
+- Pan step: animate center change and measure transition frame times.
+- Zoom step: animate zoom change and measure transition frame times.
+- Update: single-vertex geometry replacement burst and redraw, without restyling; moved vertex displacement is intentionally large for visibility.
+- Combined: geometry-update burst + animated pan step.
+- Final score is based on combined-test median p95 frame time.
+- v9 keeps geometry-update focus, uses larger single-vertex displacement for visible edits, and simplifies the result pane.</pre>
+
+<script>
+"use strict";
+
+/* ============================================================
+   Fixed benchmark constants
+   ============================================================ */
+
+const BENCHMARK = {
+  panSteps: 10,
+  zoomSteps: 8,
+  updateSteps: 10,
+  combinedSteps: 10,
+
+  pauseMs: 250,
+  animationMs: 350,
+  renderTimeoutMs: 2500,
+
+  updatePct: 8,
+  burstRepeats: 4,
+
+  // visual/edit displacement for single-vertex changes, in map units (EPSG:3857 meters)
+  vertexDisplacement: 12000,
+
+overview: {
+  centerLonLat: [16.2, 45.4],
+  zoom: 8.5,
+  panStep: 120000,
+  zoomDelta: 1.0
+},
+
+  editing: {
+    centerLonLat: [16.2, 45.4],
+    zoom: 12.3,
+    panStep: 5000,
+    zoomDelta: 0.8
+  },
+
+  classThresholdsMs: {
+    A: 20,
+    B: 35,
+    C: 60,
+    D: 100
+  }
+};
+
+/* ============================================================
+   Deterministic RNG
+   ============================================================ */
+
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function() {
+    a += 0x6D2B79F5;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/* ============================================================
+   OpenLayers setup
+   ============================================================ */
+
+const source = new ol.source.Vector({ useSpatialIndex: true });
+
+const normalStyle = new ol.style.Style({
+  fill: new ol.style.Fill({ color: "rgba(40, 110, 210, 0.22)" }),
+  stroke: new ol.style.Stroke({ color: "rgba(20, 70, 160, 0.75)", width: 1 })
+});
+
+const changedStyle = new ol.style.Style({
+  fill: new ol.style.Fill({ color: "rgba(230, 120, 30, 0.30)" }),
+  stroke: new ol.style.Stroke({ color: "rgba(190, 80, 20, 0.90)", width: 1.5 })
+});
+
+const osmLayer = new ol.layer.Tile({
+  source: new ol.source.OSM(),
+  visible: false
+});
+
+const vectorLayer = new ol.layer.Vector({
+  source,
+  style: normalStyle,
+  updateWhileAnimating: true,
+  updateWhileInteracting: true
+});
+
+const map = new ol.Map({
+  target: "map",
+  layers: [osmLayer, vectorLayer],
+  view: new ol.View({
+    center: ol.proj.fromLonLat(BENCHMARK.overview.centerLonLat),
+    zoom: BENCHMARK.overview.zoom
+  })
+});
+
+const output = document.getElementById("output");
+const scoreBox = document.getElementById("scoreBox");
+const scoreValue = document.getElementById("scoreValue");
+let lastResults = null;
+
+/* ============================================================
+   Helpers
+   ============================================================ */
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function waitRender(timeoutMs = BENCHMARK.renderTimeoutMs) {
+  return new Promise(resolve => {
+    let done = false;
+
+    const finish = (timedOut) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      resolve({ timedOut });
+    };
+
+    const timer = setTimeout(() => {
+      finish(true);
+    }, timeoutMs);
+
+    map.once("rendercomplete", () => {
+      finish(false);
+    });
+
+    map.render();
+  });
+}
+
+function stats(values) {
+  if (!values.length) {
+    return { n: 0, min: null, max: null, mean: null, median: null, p95: null };
+  }
+  const sorted = [...values].sort((a, b) => a - b);
+  const sum = values.reduce((a, b) => a + b, 0);
+  const idx95 = Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95));
+  const mid = Math.floor(sorted.length / 2);
+  return {
+    n: values.length,
+    min: sorted[0],
+    max: sorted[sorted.length - 1],
+    mean: sum / values.length,
+    median: sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2,
+    p95: sorted[idx95]
+  };
+}
+
+function fmtNumber(x, digits = 1) {
+  return x === null || x === undefined ? "n/a" : Number(x).toFixed(digits);
+}
+
+function log(text) {
+  output.textContent = text;
+}
+
+function getModeConfig(params) {
+  return params.viewportMode === "editing" ? BENCHMARK.editing : BENCHMARK.overview;
+}
+
+function getModeSuffix(params) {
+  return params.viewportMode === "editing" ? "+" : "-";
+}
+
+function classifyP95(p95) {
+  if (p95 <= BENCHMARK.classThresholdsMs.A) return "A";
+  if (p95 <= BENCHMARK.classThresholdsMs.B) return "B";
+  if (p95 <= BENCHMARK.classThresholdsMs.C) return "C";
+  if (p95 <= BENCHMARK.classThresholdsMs.D) return "D";
+  return "E";
+}
+
+function formatLoad(count) {
+  if (count >= 1000) {
+    const k = count / 1000;
+    return Number.isInteger(k) ? `${k}K` : `${k.toFixed(1)}K`;
+  }
+  return `${count}`;
+}
+
+function applyBackgroundMode() {
+  const mode = document.getElementById("backgroundMode").value;
+  osmLayer.setVisible(mode === "osm");
+}
+
+/* ============================================================
+   Polygon generation
+   ============================================================ */
+
+function randomCenter(rng) {
+  const lon = 13.4 + rng() * 6.0;
+  const lat = 42.4 + rng() * 4.2;
+  return ol.proj.fromLonLat([lon, lat]);
+}
+
+function makeRectangle(cx, cy, sizeX, sizeY) {
+  return [[
+    [cx - sizeX, cy - sizeY],
+    [cx + sizeX, cy - sizeY],
+    [cx + sizeX, cy + sizeY],
+    [cx - sizeX, cy + sizeY],
+    [cx - sizeX, cy - sizeY]
+  ]];
+}
+
+function makeIrregular(cx, cy, radius, vertices, rng) {
+  const ring = [];
+  for (let i = 0; i < vertices; i++) {
+    const a = (Math.PI * 2 * i) / vertices;
+    const localR = radius * (0.55 + rng() * 0.65);
+    ring.push([cx + Math.cos(a) * localR, cy + Math.sin(a) * localR]);
+  }
+  ring.push(ring[0].slice());
+  return [ring];
+}
+
+function generateFeatures(count, complexity, seed) {
+  const rng = mulberry32(seed);
+  const features = new Array(count);
+
+  let vertices;
+  if (complexity === "simple") vertices = 4;
+  else if (complexity === "medium") vertices = 20;
+  else vertices = 80;
+
+  for (let i = 0; i < count; i++) {
+    const [cx, cy] = randomCenter(rng);
+    const base = 1200 + rng() * 5000;
+
+    let coords;
+    if (complexity === "simple") {
+      coords = makeRectangle(cx, cy, base * (0.5 + rng()), base * (0.5 + rng()));
+    } else {
+      coords = makeIrregular(cx, cy, base, vertices, rng);
+    }
+
+    const feature = new ol.Feature({ geometry: new ol.geom.Polygon(coords) });
+    feature.setId(i);
+    feature.set("changed", false);
+    features[i] = feature;
+  }
+
+  return features;
+}
+
+/* ============================================================
+   Single-vertex replacement update
+   ============================================================ */
+
+function replaceOneVertex(feature, rng) {
+  const geom = feature.getGeometry();
+  const coords = geom.getCoordinates();
+
+  const ring = coords[0].map(p => [p[0], p[1]]);
+  const editableVertexCount = ring.length - 1;
+
+  const vertexIndex = Math.floor(rng() * editableVertexCount);
+
+  const modeMultiplier = document.getElementById("viewportMode").value === "overview" ? 3 : 1;
+  const dx = (rng() - 0.5) * BENCHMARK.vertexDisplacement * modeMultiplier;
+  const dy = (rng() - 0.5) * BENCHMARK.vertexDisplacement * modeMultiplier;
+
+  ring[vertexIndex][0] += dx;
+  ring[vertexIndex][1] += dy;
+
+  if (vertexIndex === 0) {
+    ring[ring.length - 1] = ring[0].slice();
+  }
+
+  feature.setGeometry(new ol.geom.Polygon([ring]));
+}
+
+function applyUpdateBatch(features, rng, updateCount) {
+  for (let i = 0; i < updateCount; i++) {
+    const idx = Math.floor(rng() * features.length);
+    replaceOneVertex(features[idx], rng);
+  }
+  source.changed();
+}
+
+/* ============================================================
+   Frame-time measurement for visible transitions
+   ============================================================ */
+
+async function measureFramesDuring(actionFn, expectedDurationMs) {
+  const frameTimes = [];
+  let prev = performance.now();
+  let running = true;
+
+  function frame(now) {
+    if (!running) return;
+    frameTimes.push(now - prev);
+    prev = now;
+    requestAnimationFrame(frame);
+  }
+
+  requestAnimationFrame(frame);
+
+  const t0 = performance.now();
+  actionFn();
+
+  // Wait for the intended visual transition plus a small render settlement buffer.
+  await sleep(expectedDurationMs + 120);
+  const renderWait = await waitRender();
+
+  const t1 = performance.now();
+  running = false;
+
+  const cleaned = frameTimes.slice(1);
+  const s = stats(cleaned);
+
+  return {
+    durationMs: t1 - t0,
+    frameCount: cleaned.length,
+    frameTimesMs: cleaned,
+    frameStats: s,
+    meanFps: s.mean ? 1000 / s.mean : null,
+    renderTimedOut: renderWait.timedOut
+  };
+}
+
+/* ============================================================
+   Benchmark phases
+   ============================================================ */
+
+function setViewport(params) {
+  const cfg = getModeConfig(params);
+  const view = map.getView();
+  view.cancelAnimations();
+  view.setCenter(ol.proj.fromLonLat(cfg.centerLonLat));
+  view.setZoom(cfg.zoom);
+}
+
+async function loadAndRenderOnce(params) {
+  source.clear(true);
+
+  const t0 = performance.now();
+  const features = generateFeatures(params.count, params.complexity, params.seed);
+  const t1 = performance.now();
+
+  source.addFeatures(features);
+  setViewport(params);
+
+  const t2 = performance.now();
+  await waitRender();
+  const t3 = performance.now();
+
+  return {
+    generationMs: t1 - t0,
+    addFeaturesMs: t2 - t1,
+    initialRenderMs: t3 - t2,
+    totalLoadMs: t3 - t0
+  };
+}
+
+async function panBenchmark(params) {
+  setViewport(params);
+  await waitRender();
+
+  const cfg = getModeConfig(params);
+  const view = map.getView();
+  const center = view.getCenter();
+
+  const dirs = [
+    [1, 0], [-1, 0], [0, 1], [0, -1],
+    [1, 1], [-1, -1], [1, -1], [-1, 1],
+    [1, 0], [-1, 0]
+  ];
+
+  const events = [];
+
+  for (let i = 0; i < BENCHMARK.panSteps; i++) {
+    const d = dirs[i % dirs.length];
+    const target = [center[0] + d[0] * cfg.panStep, center[1] + d[1] * cfg.panStep];
+
+    const result = await measureFramesDuring(() => {
+      view.animate({
+        center: target,
+        duration: BENCHMARK.animationMs
+      });
+    }, BENCHMARK.animationMs);
+
+    events.push(result);
+    await sleep(BENCHMARK.pauseMs);
+  }
+
+  return summarizeTransitionEvents(events);
+}
+
+async function zoomBenchmark(params) {
+  setViewport(params);
+  await waitRender();
+
+  const cfg = getModeConfig(params);
+  const view = map.getView();
+  const baseZoom = cfg.zoom;
+  const dz = cfg.zoomDelta;
+  const zooms = [
+    baseZoom + dz,
+    baseZoom,
+    baseZoom - dz,
+    baseZoom,
+    baseZoom + dz,
+    baseZoom,
+    baseZoom - dz,
+    baseZoom
+  ];
+
+  const events = [];
+
+  for (let i = 0; i < BENCHMARK.zoomSteps; i++) {
+    const z = zooms[i % zooms.length];
+
+    const result = await measureFramesDuring(() => {
+      view.animate({
+        zoom: z,
+        duration: BENCHMARK.animationMs
+      });
+    }, BENCHMARK.animationMs);
+
+    events.push(result);
+    await sleep(BENCHMARK.pauseMs);
+  }
+
+  return summarizeTransitionEvents(events);
+}
+
+async function updateBenchmark(params) {
+  setViewport(params);
+  await waitRender();
+
+  const features = source.getFeatures();
+  const rng = mulberry32(params.seed + 999);
+  const updateCount = Math.max(1, Math.floor(features.length * BENCHMARK.updatePct / 100));
+  const events = [];
+
+  for (let i = 0; i < BENCHMARK.updateSteps; i++) {
+    const result = await measureFramesDuring(() => {
+      applyUpdateBatch(features, rng, updateCount);
+    }, BENCHMARK.animationMs);
+
+    result.updateCount = updateCount;
+    events.push(result);
+    await sleep(BENCHMARK.pauseMs);
+  }
+
+  return summarizeTransitionEvents(events);
+}
+
+async function combinedBenchmark(params) {
+  setViewport(params);
+  await waitRender();
+
+  const cfg = getModeConfig(params);
+  const features = source.getFeatures();
+  const view = map.getView();
+  const center = view.getCenter();
+  const rng = mulberry32(params.seed + 2025);
+  const updateCount = Math.max(1, Math.floor(features.length * BENCHMARK.updatePct / 100));
+
+  const dirs = [
+    [1, 0], [-1, 0], [0, 1], [0, -1],
+    [1, 1], [-1, -1], [1, -1], [-1, 1],
+    [1, 0], [-1, 0]
+  ];
+
+  const events = [];
+
+  for (let i = 0; i < BENCHMARK.combinedSteps; i++) {
+    const d = dirs[i % dirs.length];
+    const target = [center[0] + d[0] * cfg.panStep, center[1] + d[1] * cfg.panStep];
+
+    const result = await measureFramesDuring(() => {
+      for (let b = 0; b < BENCHMARK.burstRepeats; b++) {
+        applyUpdateBatch(features, rng, updateCount);
+      }
+      view.animate({
+        center: target,
+        duration: BENCHMARK.animationMs
+      });
+    }, BENCHMARK.animationMs);
+
+    result.updateCountPerRepeat = updateCount;
+    result.burstRepeats = BENCHMARK.burstRepeats;
+    events.push(result);
+    await sleep(BENCHMARK.pauseMs);
+  }
+
+  return summarizeTransitionEvents(events);
+}
+
+function summarizeTransitionEvents(events) {
+  return {
+    eventCount: events.length,
+    timeoutCount: events.filter(e => e.renderTimedOut).length,
+    events,
+    medianFrameMs: stats(events.map(e => e.frameStats.median)),
+    p95FrameMs: stats(events.map(e => e.frameStats.p95)),
+    worstFrameMs: stats(events.map(e => e.frameStats.max)),
+    meanFps: stats(events.map(e => e.meanFps)),
+    durationMs: stats(events.map(e => e.durationMs))
+  };
+}
+
+/* ============================================================
+   Orchestration
+   ============================================================ */
+
+function readParams() {
+  return {
+    count: Number(document.getElementById("count").value),
+    complexity: document.getElementById("complexity").value,
+    viewportMode: document.getElementById("viewportMode").value,
+    backgroundMode: document.getElementById("backgroundMode").value,
+    runs: Number(document.getElementById("runs").value),
+    seed: Number(document.getElementById("seed").value),
+    updateMode: "single_vertex_geometry_replacement_no_restyle",
+    navigationMode: "animated_discrete_transition",
+    deterministicMode: "same dataset and same scripted operations for every repeated run",
+    fixedBenchmarkConstants: BENCHMARK,
+    userAgent: navigator.userAgent,
+    hardwareConcurrency: navigator.hardwareConcurrency || null,
+    devicePixelRatio: window.devicePixelRatio,
+    viewport: {
+      width: window.innerWidth,
+      height: window.innerHeight
+    },
+    olVersion: ol.VERSION || "unknown"
+  };
+}
+
+async function runAll() {
+  const params = readParams();
+  applyBackgroundMode();
+
+  const loadRuns = [];
+  const panRuns = [];
+  const zoomRuns = [];
+  const updateRuns = [];
+  const combinedRuns = [];
+
+  log("Running deterministic animated-transition benchmark...");
+
+  for (let i = 1; i <= params.runs; i++) {
+    log(`Run ${i}/${params.runs}: loading/rendering identical polygon dataset...`);
+    const load = await loadAndRenderOnce(params);
+    loadRuns.push(load);
+
+    log(`Run ${i}/${params.runs}: animated pan benchmark...`);
+    const pan = await panBenchmark(params);
+    panRuns.push(pan);
+
+    log(`Run ${i}/${params.runs}: animated zoom benchmark...`);
+    const zoom = await zoomBenchmark(params);
+    zoomRuns.push(zoom);
+
+    log(`Run ${i}/${params.runs}: update redraw benchmark...`);
+    const update = await updateBenchmark(params);
+    updateRuns.push(update);
+
+    log(`Run ${i}/${params.runs}: combined update-burst + animated pan benchmark...`);
+    await loadAndRenderOnce(params);
+    const combined = await combinedBenchmark(params);
+    combinedRuns.push(combined);
+
+    await sleep(300);
+  }
+
+  const combinedP95Stats = stats(combinedRuns.map(r => r.p95FrameMs.median));
+  const finalClass = classifyP95(combinedP95Stats.median);
+  const finalScore = `${finalClass}@${formatLoad(params.count)}${getModeSuffix(params)}`;
+
+  const result = {
+    timestamp: new Date().toISOString(),
+    params,
+    finalScore,
+    finalClass,
+    finalScoreBasis: {
+      metric: "median p95 frame time from combined update-burst + animated pan test",
+      medianP95FrameMs: combinedP95Stats.median,
+      suffix: getModeSuffix(params),
+      suffixMeaning: params.viewportMode === "editing"
+        ? "+ = editing / zoom-restricted"
+        : "- = overview / unrestricted"
+    },
+    raw: {
+      loadRuns,
+      panRuns,
+      zoomRuns,
+      updateRuns,
+      combinedRuns
+    },
+    summary: {
+      generationMs: stats(loadRuns.map(r => r.generationMs)),
+      addFeaturesMs: stats(loadRuns.map(r => r.addFeaturesMs)),
+      initialRenderMs: stats(loadRuns.map(r => r.initialRenderMs)),
+      totalLoadMs: stats(loadRuns.map(r => r.totalLoadMs)),
+      panP95FrameMs: stats(panRuns.map(r => r.p95FrameMs.median)),
+      panWorstFrameMs: stats(panRuns.map(r => r.worstFrameMs.median)),
+      zoomP95FrameMs: stats(zoomRuns.map(r => r.p95FrameMs.median)),
+      zoomWorstFrameMs: stats(zoomRuns.map(r => r.worstFrameMs.median)),
+      updateP95FrameMs: stats(updateRuns.map(r => r.p95FrameMs.median)),
+      updateWorstFrameMs: stats(updateRuns.map(r => r.worstFrameMs.median)),
+      combinedP95FrameMs: combinedP95Stats,
+      combinedWorstFrameMs: stats(combinedRuns.map(r => r.worstFrameMs.median)),
+      combinedMeanFps: stats(combinedRuns.map(r => r.meanFps.median)),
+      timeoutCounts: {
+        pan: panRuns.reduce((a, r) => a + r.timeoutCount, 0),
+        zoom: zoomRuns.reduce((a, r) => a + r.timeoutCount, 0),
+        update: updateRuns.reduce((a, r) => a + r.timeoutCount, 0),
+        combined: combinedRuns.reduce((a, r) => a + r.timeoutCount, 0)
+      }
+    }
+  };
+
+  lastResults = result;
+  displaySummary(result);
+}
+
+function displaySummary(result) {
+  const s = result.summary;
+  if (scoreBox && scoreValue) {
+    scoreBox.style.display = "block";
+    scoreValue.textContent = result.finalScore;
+  }
+
+  const lines = [];
+  lines.push("Class thresholds from combined-test p95 frame time:");
+  lines.push("A ≤ 20 ms | B ≤ 35 ms | C ≤ 60 ms | D ≤ 100 ms | E > 100 ms");
+  lines.push("");
+  lines.push(`Final score: ${result.finalScore}`);
+  lines.push(`Mode: ${result.params.viewportMode} (${result.finalScoreBasis.suffixMeaning})`);
+  lines.push(`Complexity: ${result.params.complexity}, polygons: ${result.params.count}, runs: ${result.params.runs}`);
+  lines.push(`Background: ${result.params.backgroundMode}`);
+  lines.push(`Combined p95 frame: median=${fmtNumber(s.combinedP95FrameMs.median)} ms, mean=${fmtNumber(s.combinedP95FrameMs.mean)} ms`);
+  lines.push(`Combined worst frame: median=${fmtNumber(s.combinedWorstFrameMs.median)} ms`);
+  lines.push(`Combined mean FPS: median=${fmtNumber(s.combinedMeanFps.median)}`);
+  lines.push("");
+  lines.push(`Load total: median=${fmtNumber(s.totalLoadMs.median)} ms`);
+  lines.push(`Pan p95: median=${fmtNumber(s.panP95FrameMs.median)} ms`);
+  lines.push(`Zoom p95: median=${fmtNumber(s.zoomP95FrameMs.median)} ms`);
+  lines.push(`Update p95: median=${fmtNumber(s.updateP95FrameMs.median)} ms`);
+
+  if (s.timeoutCounts) {
+    lines.push("");
+    lines.push(`Render wait timeouts: pan=${s.timeoutCounts.pan}, zoom=${s.timeoutCounts.zoom}, update=${s.timeoutCounts.update}, combined=${s.timeoutCounts.combined}`);
+  }
+
+  lines.push("");
+  lines.push("Full parameters, metadata and raw per-event values are in copied JSON.");
+
+  output.textContent = lines.join("\n");
+}
+
+function resetAll() {
+  source.clear(true);
+  lastResults = null;
+  const params = readParams();
+  applyBackgroundMode();
+  setViewport(params);
+  if (scoreBox && scoreValue) {
+    scoreBox.style.display = "none";
+    scoreValue.textContent = "";
+  }
+  output.textContent = "Ready.";
+}
+
+async function copyResults() {
+  if (!lastResults) {
+    output.textContent += "\nNo results to copy yet.";
+    return;
+  }
+  const text = JSON.stringify(lastResults, null, 2);
+  try {
+    await navigator.clipboard.writeText(text);
+    output.textContent += "\nCopied full JSON results to clipboard.";
+  } catch (e) {
+    output.textContent += "\nClipboard failed. Full JSON:\n" + text;
+  }
+}
+</script>
+</body>
+</html>
