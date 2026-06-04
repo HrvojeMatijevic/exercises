@@ -748,7 +748,7 @@ function displaySummary(result) {
     scoreValue.textContent = `${fmtNumber(result.mainMetric.valueMs)} ms`;
   }
 
-  output.textContent = `Done. Combined-test p95 frame time: ${fmtNumber(result.mainMetric.valueMs)} ms`;
+  output.textContent = `Done. Navigation/update p95 frame time: ${fmtNumber(result.mainMetric.valueMs)} ms`;
 }
 
 function toggleSettings() {
@@ -796,9 +796,9 @@ function makeAnalysisRow(result) {
     runs: p.runs,
     loadTotalMedianMs: s.totalLoadMs.median,
     initialRenderMedianMs: s.initialRenderMs.median,
-    combinedP95MedianMs: s.combinedP95FrameMs.median,
-    combinedWorstMedianMs: s.combinedWorstFrameMs.median,
-    combinedMeanFpsMedian: s.combinedMeanFps.median
+    navUpdateP95MedianMs: s.combinedP95FrameMs.median,
+    navUpdateWorstMedianMs: s.combinedWorstFrameMs.median,
+    navUpdateMeanFpsMedian: s.combinedMeanFps.median
   };
 }
 
