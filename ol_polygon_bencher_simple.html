@@ -2,28 +2,181 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>OpenLayers Polygon Benchmark - Conference Version</title>
+  <title>OpenLayers Polygon Benchmark - Minimal Congress Version</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
+
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@10.6.1/ol.css">
-  <script src="https://cdn.jsdelivr.net/npm/ol@10.6.1/dist/ol.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/ol@10.6.1/dist/ol.js">window.addEventListener("resize", () => map.updateSize());
+setTimeout(() => map.updateSize(), 0);
+</script>
+
   <style>
-    html, body { margin:0; height:100%; font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
-    body { display:flex; flex-direction:column; }
-    #controls { background:#f3f3f3; border-bottom:1px solid #ccc; padding:8px; display:grid; grid-template-columns:repeat(auto-fit,minmax(145px,1fr)); gap:8px; align-items:end; font-size:14px; }
-    label { display:flex; flex-direction:column; gap:3px; }
-    select, button { font-size:16px; padding:7px; min-height:38px; box-sizing:border-box; }
-    button { cursor:pointer; }
-    #headline { background:#fff8d8; border-bottom:1px solid #d6c36a; padding:10px 12px; display:none; font-weight:700; }
-    #headline .metric { font-size:30px; font-weight:900; margin-left:8px; }
-    #map { flex:1; min-height:300px; background:#fafafa; }
-    #output { background:#fff; border-top:1px solid #ccc; padding:8px; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:12px; max-height:30vh; overflow:auto; white-space:pre-wrap; }
-    .wide { grid-column:span 2; }
-    @media (max-width:650px) { #controls { grid-template-columns:1fr 1fr; } .wide { grid-column:span 2; } }
+    html, body {
+      margin: 0;
+      height: 100%;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      overflow: hidden;
+    }
+
+    body {
+      display: flex;
+      flex-direction: column;
+      max-width: 100vw;
+    }
+
+    #topbar {
+      background: #f3f3f3;
+      border-bottom: 1px solid #ccc;
+      padding: 8px;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      align-items: stretch;
+      max-width: 100vw;
+      box-sizing: border-box;
+    }
+
+    #controls {
+      background: #f3f3f3;
+      border-bottom: 1px solid #ccc;
+      padding: 8px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+      gap: 8px;
+      align-items: end;
+      font-size: 14px;
+      max-width: 100vw;
+      box-sizing: border-box;
+    }
+
+    #controls.collapsed {
+      display: none;
+    }
+
+    label {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      min-width: 0;
+    }
+
+    input, select, button {
+      font-size: 16px;
+      padding: 7px;
+      min-height: 38px;
+      box-sizing: border-box;
+      width: 100%;
+      max-width: 100%;
+      min-width: 0;
+    }
+
+    button {
+      cursor: pointer;
+    }
+
+    #map {
+      flex: 1;
+      min-height: 260px;
+      background: #fafafa;
+    }
+
+    #scoreBox {
+      background: #fff8d8;
+      border-bottom: 1px solid #d6c36a;
+      padding: 8px 12px;
+      font-size: 16px;
+      font-weight: 700;
+      display: none;
+      max-width: 100vw;
+      box-sizing: border-box;
+    }
+
+    #scoreBox .score {
+      font-size: 28px;
+      font-weight: 900;
+      margin-left: 8px;
+    }
+
+    #output {
+      background: #fff;
+      border-top: 1px solid #ccc;
+      padding: 8px;
+      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+      font-size: 12px;
+      max-height: 26vh;
+      overflow: auto;
+      white-space: pre-wrap;
+      box-sizing: border-box;
+      max-width: 100vw;
+    }
+
+    .wide {
+      grid-column: span 2;
+    }
+
+    @media (max-width: 650px) {
+      #topbar {
+        grid-template-columns: repeat(4, 1fr);
+        padding: 6px;
+        gap: 6px;
+      }
+
+      #controls {
+        grid-template-columns: 1fr 1fr;
+        padding: 6px;
+        gap: 6px;
+        font-size: 12px;
+      }
+
+      #controls .wide {
+        grid-column: span 2;
+      }
+
+      input, select, button {
+        font-size: 14px;
+        min-height: 34px;
+        padding: 5px;
+      }
+
+      #scoreBox {
+        padding: 5px 8px;
+        font-size: 13px;
+      }
+
+      #scoreBox .score {
+        font-size: 20px;
+      }
+
+      #output {
+        max-height: 18vh;
+        font-size: 11px;
+        padding: 6px;
+      }
+
+      #map {
+        min-height: 360px;
+      }
+    }
+
+    @media (min-width: 651px) {
+      #controls.collapsed {
+        display: grid;
+      }
+    }
   </style>
 </head>
+
 <body>
-  <div id="controls">
-    <label>Polygon count
+  <div id="topbar">
+    <button onclick="runAll()">Run</button>
+    <button onclick="toggleSettings()">Settings</button>
+    <button onclick="resetAll()">Reset</button>
+    <button onclick="copyResults()">Copy CSV</button>
+  </div>
+
+  <div id="controls" class="collapsed">
+    <label>
+      Polygon count
       <select id="count">
         <option value="5000">5K</option>
         <option value="10000">10K</option>
@@ -31,67 +184,98 @@
         <option value="20000">20K</option>
         <option value="25000">25K</option>
         <option value="30000">30K</option>
+        <option value="35000">35K</option>
         <option value="40000">40K</option>
+        <option value="45000">45K</option>
         <option value="50000">50K</option>
       </select>
     </label>
-    <label>Viewport mode
+
+    <label>
+      Viewport mode
       <select id="viewportMode">
         <option value="overview">Overview / unrestricted</option>
         <option value="editing">Editing / zoom-restricted</option>
       </select>
     </label>
-    <label>Background
+
+    <label>
+      Background
       <select id="backgroundMode" onchange="applyBackgroundMode()">
         <option value="none">none / vector only</option>
         <option value="osm">OSM tiles</option>
       </select>
     </label>
-    <label>Runs
+
+    <label>
+      Runs
       <select id="runs">
         <option value="3">3</option>
         <option value="5" selected>5</option>
         <option value="10">10</option>
       </select>
     </label>
-    <button onclick="runAll()" class="wide">Run benchmark</button>
-    <button onclick="resetAll()">Reset</button>
-    <button onclick="copyResults()">Copy JSON</button>
   </div>
 
-  <div id="headline">Combined p95 frame time: <span id="headlineMetric" class="metric"></span></div>
+  <div id="scoreBox">Combined p95: <span id="scoreValue" class="score"></span></div>
   <div id="map"></div>
   <pre id="output">Ready.
 
-Conference version:
+Minimal congress version:
 - Fixed seed: 12345.
-- Fixed polygon complexity: 80 vertices.
-- Polygon count selectable in fixed steps.
-- No A-E classification.
-- Main reported metric: combined-test p95 frame time.
-- Full raw measurements and metadata are kept in copied JSON.</pre>
+- Fixed complexity: 80-vertex irregular polygons.
+- Main metric: combined-test p95 frame time.
+- Copy CSV exports one compact analysis row.</pre>
 
 <script>
 "use strict";
+
+/* ============================================================
+   Fixed benchmark constants
+   ============================================================ */
 
 const BENCHMARK = {
   seed: 12345,
   complexity: "complex",
   vertices: 80,
-  panSteps: 10,
-  zoomSteps: 8,
-  updateSteps: 10,
-  combinedSteps: 10,
+  combinedSteps: 3,
+
   pauseMs: 250,
-  animationMs: 350,
+  animationMs: 650,
   renderTimeoutMs: 2500,
-  updatePct: 8,
-  burstRepeats: 4,
-  vertexDisplacementEditing: 12000,
-  vertexDisplacementOverview: 120000,
-  overview: { centerLonLat:[16.2,45.4], zoom:8.5, panStep:120000, zoomDelta:1.0 },
-  editing: { centerLonLat:[16.2,45.4], zoom:12.3, panStep:5000, zoomDelta:0.8 }
+
+  updatePct: 3,
+  burstRepeats: 1,
+  updateIntervalMs: 150,
+
+  // visual/edit displacement for single-vertex changes, in map units (EPSG:3857 meters)
+  vertexDisplacement: 12000,
+
+overview: {
+  centerLonLat: [16.2, 45.4],
+  zoom: 8.5,
+  panStep: 120000,
+  zoomDelta: 1.0
+},
+
+  editing: {
+    centerLonLat: [16.2, 45.4],
+    zoom: 12.3,
+    panStep: 15000,
+    zoomDelta: 0.8
+  },
+
+  classThresholdsMs: {
+    A: 20,
+    B: 35,
+    C: 60,
+    D: 100
+  }
 };
+
+/* ============================================================
+   Deterministic RNG
+   ============================================================ */
 
 function mulberry32(seed) {
   let a = seed >>> 0;
@@ -104,64 +288,137 @@ function mulberry32(seed) {
   };
 }
 
-const source = new ol.source.Vector({ useSpatialIndex:true });
+/* ============================================================
+   OpenLayers setup
+   ============================================================ */
+
+const source = new ol.source.Vector({ useSpatialIndex: true });
 
 const normalStyle = new ol.style.Style({
-  fill: new ol.style.Fill({ color:"rgba(40,110,210,0.22)" }),
-  stroke: new ol.style.Stroke({ color:"rgba(20,70,160,0.75)", width:1 })
+  fill: new ol.style.Fill({ color: "rgba(40, 110, 210, 0.22)" }),
+  stroke: new ol.style.Stroke({ color: "rgba(20, 70, 160, 0.75)", width: 1 })
 });
 
-const osmLayer = new ol.layer.Tile({ source:new ol.source.OSM(), visible:false });
+const changedStyle = new ol.style.Style({
+  fill: new ol.style.Fill({ color: "rgba(230, 120, 30, 0.30)" }),
+  stroke: new ol.style.Stroke({ color: "rgba(190, 80, 20, 0.90)", width: 1.5 })
+});
+
+const osmLayer = new ol.layer.Tile({
+  source: new ol.source.OSM(),
+  visible: false
+});
 
 const vectorLayer = new ol.layer.Vector({
   source,
   style: normalStyle,
-  updateWhileAnimating:true,
-  updateWhileInteracting:true
+  updateWhileAnimating: true,
+  updateWhileInteracting: true
 });
 
 const map = new ol.Map({
-  target:"map",
-  layers:[osmLayer, vectorLayer],
-  view:new ol.View({ center:ol.proj.fromLonLat(BENCHMARK.overview.centerLonLat), zoom:BENCHMARK.overview.zoom })
+  target: "map",
+  layers: [osmLayer, vectorLayer],
+  view: new ol.View({
+    center: ol.proj.fromLonLat(BENCHMARK.overview.centerLonLat),
+    zoom: BENCHMARK.overview.zoom
+  })
 });
 
 const output = document.getElementById("output");
-const headline = document.getElementById("headline");
-const headlineMetric = document.getElementById("headlineMetric");
+const scoreBox = document.getElementById("scoreBox");
+const scoreValue = document.getElementById("scoreValue");
 let lastResults = null;
 
-function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+/* ============================================================
+   Helpers
+   ============================================================ */
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
 
 function waitRender(timeoutMs = BENCHMARK.renderTimeoutMs) {
   return new Promise(resolve => {
     let done = false;
-    const finish = timedOut => {
+
+    const finish = (timedOut) => {
       if (done) return;
       done = true;
       clearTimeout(timer);
       resolve({ timedOut });
     };
-    const timer = setTimeout(() => finish(true), timeoutMs);
-    map.once("rendercomplete", () => finish(false));
+
+    const timer = setTimeout(() => {
+      finish(true);
+    }, timeoutMs);
+
+    map.once("rendercomplete", () => {
+      finish(false);
+    });
+
     map.render();
   });
 }
 
 function stats(values) {
-  if (!values.length) return { n:0, min:null, max:null, mean:null, median:null, p95:null };
-  const sorted = [...values].sort((a,b) => a-b);
-  const sum = values.reduce((a,b) => a+b, 0);
+  if (!values.length) {
+    return { n: 0, min: null, max: null, mean: null, median: null, p95: null };
+  }
+  const sorted = [...values].sort((a, b) => a - b);
+  const sum = values.reduce((a, b) => a + b, 0);
   const idx95 = Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95));
   const mid = Math.floor(sorted.length / 2);
-  return { n:values.length, min:sorted[0], max:sorted[sorted.length-1], mean:sum/values.length,
-    median: sorted.length % 2 ? sorted[mid] : (sorted[mid-1] + sorted[mid]) / 2, p95:sorted[idx95] };
+  return {
+    n: values.length,
+    min: sorted[0],
+    max: sorted[sorted.length - 1],
+    mean: sum / values.length,
+    median: sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2,
+    p95: sorted[idx95]
+  };
 }
 
-function fmtNumber(x, digits=1) { return x === null || x === undefined ? "n/a" : Number(x).toFixed(digits); }
-function log(text) { output.textContent = text; }
-function getModeConfig(params) { return params.viewportMode === "editing" ? BENCHMARK.editing : BENCHMARK.overview; }
-function applyBackgroundMode() { osmLayer.setVisible(document.getElementById("backgroundMode").value === "osm"); }
+function fmtNumber(x, digits = 1) {
+  return x === null || x === undefined ? "n/a" : Number(x).toFixed(digits);
+}
+
+function log(text) {
+  output.textContent = text;
+}
+
+function getModeConfig(params) {
+  return params.viewportMode === "editing" ? BENCHMARK.editing : BENCHMARK.overview;
+}
+
+function getModeSuffix(params) {
+  return params.viewportMode === "editing" ? "+" : "-";
+}
+
+function classifyP95(p95) {
+  if (p95 <= BENCHMARK.classThresholdsMs.A) return "A";
+  if (p95 <= BENCHMARK.classThresholdsMs.B) return "B";
+  if (p95 <= BENCHMARK.classThresholdsMs.C) return "C";
+  if (p95 <= BENCHMARK.classThresholdsMs.D) return "D";
+  return "E";
+}
+
+function formatLoad(count) {
+  if (count >= 1000) {
+    const k = count / 1000;
+    return Number.isInteger(k) ? `${k}K` : `${k.toFixed(1)}K`;
+  }
+  return `${count}`;
+}
+
+function applyBackgroundMode() {
+  const mode = document.getElementById("backgroundMode").value;
+  osmLayer.setVisible(mode === "osm");
+}
+
+/* ============================================================
+   Polygon generation
+   ============================================================ */
 
 function randomCenter(rng) {
   const lon = 13.4 + rng() * 6.0;
@@ -169,10 +426,20 @@ function randomCenter(rng) {
   return ol.proj.fromLonLat([lon, lat]);
 }
 
+function makeRectangle(cx, cy, sizeX, sizeY) {
+  return [[
+    [cx - sizeX, cy - sizeY],
+    [cx + sizeX, cy - sizeY],
+    [cx + sizeX, cy + sizeY],
+    [cx - sizeX, cy + sizeY],
+    [cx - sizeX, cy - sizeY]
+  ]];
+}
+
 function makeIrregular(cx, cy, radius, vertices, rng) {
   const ring = [];
-  for (let i=0; i<vertices; i++) {
-    const a = Math.PI * 2 * i / vertices;
+  for (let i = 0; i < vertices; i++) {
+    const a = (Math.PI * 2 * i) / vertices;
     const localR = radius * (0.55 + rng() * 0.65);
     ring.push([cx + Math.cos(a) * localR, cy + Math.sin(a) * localR]);
   }
@@ -180,39 +447,62 @@ function makeIrregular(cx, cy, radius, vertices, rng) {
   return [ring];
 }
 
-function generateFeatures(count, seed) {
+function generateFeatures(count, complexity, seed) {
   const rng = mulberry32(seed);
   const features = new Array(count);
-  for (let i=0; i<count; i++) {
+  const vertices = 80;
+
+  for (let i = 0; i < count; i++) {
     const [cx, cy] = randomCenter(rng);
     const base = 1200 + rng() * 5000;
-    const coords = makeIrregular(cx, cy, base, BENCHMARK.vertices, rng);
-    const f = new ol.Feature({ geometry:new ol.geom.Polygon(coords) });
-    f.setId(i);
-    features[i] = f;
+    const coords = makeIrregular(cx, cy, base, vertices, rng);
+
+    const feature = new ol.Feature({ geometry: new ol.geom.Polygon(coords) });
+    feature.setId(i);
+    features[i] = feature;
   }
+
   return features;
 }
 
-function replaceOneVertex(feature, rng, params) {
-  const coords = feature.getGeometry().getCoordinates();
+/* ============================================================
+   Single-vertex replacement update
+   ============================================================ */
+
+function replaceOneVertex(feature, rng) {
+  const geom = feature.getGeometry();
+  const coords = geom.getCoordinates();
+
   const ring = coords[0].map(p => [p[0], p[1]]);
   const editableVertexCount = ring.length - 1;
+
   const vertexIndex = Math.floor(rng() * editableVertexCount);
-  const displacement = params.viewportMode === "overview" ? BENCHMARK.vertexDisplacementOverview : BENCHMARK.vertexDisplacementEditing;
-  ring[vertexIndex][0] += (rng() - 0.5) * displacement;
-  ring[vertexIndex][1] += (rng() - 0.5) * displacement;
-  if (vertexIndex === 0) ring[ring.length - 1] = ring[0].slice();
+
+  const modeMultiplier = document.getElementById("viewportMode").value === "overview" ? 3 : 1;
+  const dx = (rng() - 0.5) * BENCHMARK.vertexDisplacement * modeMultiplier;
+  const dy = (rng() - 0.5) * BENCHMARK.vertexDisplacement * modeMultiplier;
+
+  ring[vertexIndex][0] += dx;
+  ring[vertexIndex][1] += dy;
+
+  if (vertexIndex === 0) {
+    ring[ring.length - 1] = ring[0].slice();
+  }
+
   feature.setGeometry(new ol.geom.Polygon([ring]));
 }
 
-function applyUpdateBatch(features, rng, updateCount, params) {
-  for (let i=0; i<updateCount; i++) {
+function applyUpdateBatch(features, rng, updateCount) {
+  for (let i = 0; i < updateCount; i++) {
     const idx = Math.floor(rng() * features.length);
-    replaceOneVertex(features[idx], rng, params);
+    replaceOneVertex(features[idx], rng);
   }
   source.changed();
 }
+
+/* ============================================================
+   Frame-time measurement for visible transitions
+   ============================================================ */
 
 async function measureFramesDuring(actionFn, expectedDurationMs) {
   const frameTimes = [];
@@ -227,18 +517,33 @@ async function measureFramesDuring(actionFn, expectedDurationMs) {
   }
 
   requestAnimationFrame(frame);
+
   const t0 = performance.now();
   actionFn();
+
+  // Wait for the intended visual transition plus a small render settlement buffer.
   await sleep(expectedDurationMs + 120);
   const renderWait = await waitRender();
+
   const t1 = performance.now();
   running = false;
 
   const cleaned = frameTimes.slice(1);
   const s = stats(cleaned);
-  return { durationMs:t1-t0, frameCount:cleaned.length, frameTimesMs:cleaned, frameStats:s,
-    meanFps:s.mean ? 1000/s.mean : null, renderTimedOut:renderWait.timedOut };
+
+  return {
+    durationMs: t1 - t0,
+    frameCount: cleaned.length,
+    frameTimesMs: cleaned,
+    frameStats: s,
+    meanFps: s.mean ? 1000 / s.mean : null,
+    renderTimedOut: renderWait.timedOut
+  };
 }
+
+/* ============================================================
+   Benchmark phases
+   ============================================================ */
 
 function setViewport(params) {
   const cfg = getModeConfig(params);
@@ -250,127 +555,135 @@ function setViewport(params) {
 
 async function loadAndRenderOnce(params) {
   source.clear(true);
+
   const t0 = performance.now();
-  const features = generateFeatures(params.count, BENCHMARK.seed);
+  const features = generateFeatures(params.count, params.complexity, params.seed);
   const t1 = performance.now();
+
   source.addFeatures(features);
   setViewport(params);
+
   const t2 = performance.now();
   await waitRender();
   const t3 = performance.now();
-  return { generationMs:t1-t0, addFeaturesMs:t2-t1, initialRenderMs:t3-t2, totalLoadMs:t3-t0 };
+
+  return {
+    generationMs: t1 - t0,
+    addFeaturesMs: t2 - t1,
+    initialRenderMs: t3 - t2,
+    totalLoadMs: t3 - t0
+  };
 }
 
-async function panBenchmark(params) {
-  setViewport(params);
-  await waitRender();
-  const cfg = getModeConfig(params);
-  const view = map.getView();
-  const center = view.getCenter();
-  const dirs = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[-1,-1],[1,-1],[-1,1],[1,0],[-1,0]];
-  const events = [];
-  for (let i=0; i<BENCHMARK.panSteps; i++) {
-    const d = dirs[i % dirs.length];
-    const target = [center[0] + d[0] * cfg.panStep, center[1] + d[1] * cfg.panStep];
-    const r = await measureFramesDuring(() => view.animate({ center:target, duration:BENCHMARK.animationMs }), BENCHMARK.animationMs);
-    events.push(r);
-    await sleep(BENCHMARK.pauseMs);
-  }
-  return summarizeEvents(events);
-}
 
-async function zoomBenchmark(params) {
-  setViewport(params);
-  await waitRender();
-  const cfg = getModeConfig(params);
-  const view = map.getView();
-  const base = cfg.zoom;
-  const dz = cfg.zoomDelta;
-  const zooms = [base+dz, base, base-dz, base, base+dz, base, base-dz, base];
-  const events = [];
-  for (let i=0; i<BENCHMARK.zoomSteps; i++) {
-    const z = zooms[i % zooms.length];
-    const r = await measureFramesDuring(() => view.animate({ zoom:z, duration:BENCHMARK.animationMs }), BENCHMARK.animationMs);
-    events.push(r);
-    await sleep(BENCHMARK.pauseMs);
-  }
-  return summarizeEvents(events);
-}
-
-async function updateBenchmark(params) {
-  setViewport(params);
-  await waitRender();
-  const features = source.getFeatures();
-  const rng = mulberry32(BENCHMARK.seed + 999);
-  const updateCount = Math.max(1, Math.floor(features.length * BENCHMARK.updatePct / 100));
-  const events = [];
-  for (let i=0; i<BENCHMARK.updateSteps; i++) {
-    const r = await measureFramesDuring(() => applyUpdateBatch(features, rng, updateCount, params), BENCHMARK.animationMs);
-    r.updateCount = updateCount;
-    events.push(r);
-    await sleep(BENCHMARK.pauseMs);
-  }
-  return summarizeEvents(events);
-}
 
 async function combinedBenchmark(params) {
   setViewport(params);
   await waitRender();
+
   const cfg = getModeConfig(params);
   const features = source.getFeatures();
   const view = map.getView();
   const center = view.getCenter();
-  const rng = mulberry32(BENCHMARK.seed + 2025);
+  const rng = mulberry32(params.seed + 2025);
   const updateCount = Math.max(1, Math.floor(features.length * BENCHMARK.updatePct / 100));
-  const dirs = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[-1,-1],[1,-1],[-1,1],[1,0],[-1,0]];
-  const events = [];
 
-  for (let i=0; i<BENCHMARK.combinedSteps; i++) {
+  const dirs = [
+    [1, 0], [-1, 0], [0, 1], [0, -1],
+    [1, 1], [-1, -1], [1, -1], [-1, 1],
+    [1, 0], [-1, 0]
+  ];
+
+  const events = [];
+  const totalAnimationMs = BENCHMARK.animationMs * 3;
+
+  for (let i = 0; i < BENCHMARK.combinedSteps; i++) {
     const d = dirs[i % dirs.length];
     const target = [center[0] + d[0] * cfg.panStep, center[1] + d[1] * cfg.panStep];
-    const r = await measureFramesDuring(() => {
-      for (let b=0; b<BENCHMARK.burstRepeats; b++) applyUpdateBatch(features, rng, updateCount, params);
-      view.animate({ center:target, duration:BENCHMARK.animationMs });
-    }, BENCHMARK.animationMs);
-    r.updateCountPerRepeat = updateCount;
-    r.burstRepeats = BENCHMARK.burstRepeats;
-    events.push(r);
+
+    const result = await measureFramesDuring(() => {
+      const zoomDelta = (i % 2 === 0) ? cfg.zoomDelta : -cfg.zoomDelta;
+      const targetZoom = cfg.zoom + zoomDelta;
+
+      // Start navigation first.
+      view.animate(
+        {
+          zoom: targetZoom,
+          duration: BENCHMARK.animationMs
+        },
+        {
+          center: target,
+          duration: BENCHMARK.animationMs
+        },
+        {
+          zoom: cfg.zoom,
+          duration: BENCHMARK.animationMs
+        }
+      );
+
+      // Inject geometry updates while navigation is running.
+      // This simulates remote operations arriving during local map movement.
+      const updateTimer = setInterval(() => {
+        for (let b = 0; b < BENCHMARK.burstRepeats; b++) {
+          applyUpdateBatch(features, rng, updateCount);
+        }
+      }, BENCHMARK.updateIntervalMs);
+
+      setTimeout(() => {
+        clearInterval(updateTimer);
+      }, totalAnimationMs);
+    }, totalAnimationMs);
+
+    result.updateCountPerTick = updateCount;
+    result.updateIntervalMs = BENCHMARK.updateIntervalMs;
+    result.burstRepeats = BENCHMARK.burstRepeats;
+    result.totalAnimationMs = totalAnimationMs;
+
+    events.push(result);
     await sleep(BENCHMARK.pauseMs);
   }
-  return summarizeEvents(events);
+
+  return summarizeTransitionEvents(events);
 }
 
-function summarizeEvents(events) {
+function summarizeTransitionEvents(events) {
   return {
-    eventCount:events.length,
-    timeoutCount:events.filter(e => e.renderTimedOut).length,
+    eventCount: events.length,
+    timeoutCount: events.filter(e => e.renderTimedOut).length,
     events,
-    medianFrameMs:stats(events.map(e => e.frameStats.median)),
-    p95FrameMs:stats(events.map(e => e.frameStats.p95)),
-    worstFrameMs:stats(events.map(e => e.frameStats.max)),
-    meanFps:stats(events.map(e => e.meanFps)),
-    durationMs:stats(events.map(e => e.durationMs))
+    medianFrameMs: stats(events.map(e => e.frameStats.median)),
+    p95FrameMs: stats(events.map(e => e.frameStats.p95)),
+    worstFrameMs: stats(events.map(e => e.frameStats.max)),
+    meanFps: stats(events.map(e => e.meanFps)),
+    durationMs: stats(events.map(e => e.durationMs))
   };
 }
 
+/* ============================================================
+   Orchestration
+   ============================================================ */
+
 function readParams() {
   return {
-    count:Number(document.getElementById("count").value),
-    complexity:BENCHMARK.complexity,
-    vertices:BENCHMARK.vertices,
-    viewportMode:document.getElementById("viewportMode").value,
-    backgroundMode:document.getElementById("backgroundMode").value,
-    runs:Number(document.getElementById("runs").value),
-    seed:BENCHMARK.seed,
-    updateMode:"single_vertex_geometry_replacement_no_restyle",
-    navigationMode:"animated_discrete_transition",
-    deterministicMode:"fixed seed and fixed scripted operations for all tests",
-    fixedBenchmarkConstants:BENCHMARK,
-    userAgent:navigator.userAgent,
-    hardwareConcurrency:navigator.hardwareConcurrency || null,
-    devicePixelRatio:window.devicePixelRatio,
-    viewport:{ width:window.innerWidth, height:window.innerHeight },
-    olVersion:ol.VERSION || "unknown"
+    count: Number(document.getElementById("count").value),
+    complexity: "complex",
+    vertices: 80,
+    viewportMode: document.getElementById("viewportMode").value,
+    backgroundMode: document.getElementById("backgroundMode").value,
+    runs: Number(document.getElementById("runs").value),
+    seed: 12345,
+    updateMode: "single_vertex_geometry_replacement_no_restyle",
+    navigationMode: "animated_navigation_with_live_geometry_updates",
+    deterministicMode: "fixed seed and same scripted operations for every repeated run",
+    fixedBenchmarkConstants: BENCHMARK,
+    userAgent: navigator.userAgent,
+    hardwareConcurrency: navigator.hardwareConcurrency || null,
+    devicePixelRatio: window.devicePixelRatio,
+    viewport: {
+      width: window.innerWidth,
+      height: window.innerHeight
+    },
+    olVersion: ol.VERSION || "unknown"
   };
 }
 
@@ -378,101 +691,162 @@ async function runAll() {
   const params = readParams();
   applyBackgroundMode();
 
-  const loadRuns = [], panRuns = [], zoomRuns = [], updateRuns = [], combinedRuns = [];
-  log("Running conference benchmark...");
+  const loadRuns = [];
+  const combinedRuns = [];
 
-  for (let i=1; i<=params.runs; i++) {
-    log(`Run ${i}/${params.runs}: loading/rendering ${params.count} polygons...`);
-    loadRuns.push(await loadAndRenderOnce(params));
+  if (window.matchMedia("(max-width: 650px)").matches) {
+    document.getElementById("controls").classList.add("collapsed");
+    setTimeout(() => map.updateSize(), 0);
+  }
 
-    log(`Run ${i}/${params.runs}: animated pan benchmark...`);
-    panRuns.push(await panBenchmark(params));
+  log("Running minimal benchmark...");
 
-    log(`Run ${i}/${params.runs}: animated zoom benchmark...`);
-    zoomRuns.push(await zoomBenchmark(params));
+  for (let i = 1; i <= params.runs; i++) {
+    log(`Run ${i}/${params.runs}: loading/rendering fixed 80-vertex polygons...`);
+    const load = await loadAndRenderOnce(params);
+    loadRuns.push(load);
 
-    log(`Run ${i}/${params.runs}: geometry update benchmark...`);
-    updateRuns.push(await updateBenchmark(params));
-
-    log(`Run ${i}/${params.runs}: combined geometry-update burst + animated pan benchmark...`);
+    log(`Run ${i}/${params.runs}: combined live-update navigation benchmark...`);
     await loadAndRenderOnce(params);
-    combinedRuns.push(await combinedBenchmark(params));
+    const combined = await combinedBenchmark(params);
+    combinedRuns.push(combined);
 
     await sleep(300);
   }
 
   const combinedP95Stats = stats(combinedRuns.map(r => r.p95FrameMs.median));
 
-  lastResults = {
-    timestamp:new Date().toISOString(),
+  const result = {
+    timestamp: new Date().toISOString(),
     params,
-    mainMetric:{ name:"combined median p95 frame time", valueMs:combinedP95Stats.median, meanMs:combinedP95Stats.mean, minMs:combinedP95Stats.min, maxMs:combinedP95Stats.max },
-    raw:{ loadRuns, panRuns, zoomRuns, updateRuns, combinedRuns },
-    summary:{
-      generationMs:stats(loadRuns.map(r => r.generationMs)),
-      addFeaturesMs:stats(loadRuns.map(r => r.addFeaturesMs)),
-      initialRenderMs:stats(loadRuns.map(r => r.initialRenderMs)),
-      totalLoadMs:stats(loadRuns.map(r => r.totalLoadMs)),
-      panP95FrameMs:stats(panRuns.map(r => r.p95FrameMs.median)),
-      panWorstFrameMs:stats(panRuns.map(r => r.worstFrameMs.median)),
-      zoomP95FrameMs:stats(zoomRuns.map(r => r.p95FrameMs.median)),
-      zoomWorstFrameMs:stats(zoomRuns.map(r => r.worstFrameMs.median)),
-      updateP95FrameMs:stats(updateRuns.map(r => r.p95FrameMs.median)),
-      updateWorstFrameMs:stats(updateRuns.map(r => r.worstFrameMs.median)),
-      combinedP95FrameMs:combinedP95Stats,
-      combinedWorstFrameMs:stats(combinedRuns.map(r => r.worstFrameMs.median)),
-      combinedMeanFps:stats(combinedRuns.map(r => r.meanFps.median)),
-      timeoutCounts:{
-        pan:panRuns.reduce((a,r) => a + r.timeoutCount, 0),
-        zoom:zoomRuns.reduce((a,r) => a + r.timeoutCount, 0),
-        update:updateRuns.reduce((a,r) => a + r.timeoutCount, 0),
-        combined:combinedRuns.reduce((a,r) => a + r.timeoutCount, 0)
+    mainMetric: {
+      metric: "median p95 frame time from animated navigation with live geometry updates",
+      valueMs: combinedP95Stats.median,
+      meanMs: combinedP95Stats.mean,
+      minMs: combinedP95Stats.min,
+      maxMs: combinedP95Stats.max
+    },
+    raw: {
+      loadRuns,
+      combinedRuns
+    },
+    summary: {
+      generationMs: stats(loadRuns.map(r => r.generationMs)),
+      addFeaturesMs: stats(loadRuns.map(r => r.addFeaturesMs)),
+      initialRenderMs: stats(loadRuns.map(r => r.initialRenderMs)),
+      totalLoadMs: stats(loadRuns.map(r => r.totalLoadMs)),
+      combinedP95FrameMs: combinedP95Stats,
+      combinedWorstFrameMs: stats(combinedRuns.map(r => r.worstFrameMs.median)),
+      combinedMeanFps: stats(combinedRuns.map(r => r.meanFps.median)),
+      timeoutCounts: {
+        combined: combinedRuns.reduce((a, r) => a + r.timeoutCount, 0)
       }
     }
   };
 
-  displaySummary(lastResults);
+  lastResults = result;
+  displaySummary(result);
 }
 
 function displaySummary(result) {
   const s = result.summary;
-  headline.style.display = "block";
-  headlineMetric.textContent = `${fmtNumber(result.mainMetric.valueMs)} ms`;
+  if (scoreBox && scoreValue) {
+    scoreBox.style.display = "block";
+    scoreValue.textContent = `${fmtNumber(result.mainMetric.valueMs)} ms`;
+  }
 
   const lines = [];
-  lines.push("Main metric:");
   lines.push(`Combined-test p95 frame time: ${fmtNumber(result.mainMetric.valueMs)} ms`);
   lines.push("");
   lines.push(`Polygons: ${result.params.count}`);
-  lines.push(`Complexity: fixed ${result.params.vertices}-vertex irregular polygons`);
+  lines.push(`Complexity: fixed 80-vertex irregular polygons`);
   lines.push(`Mode: ${result.params.viewportMode}`);
   lines.push(`Background: ${result.params.backgroundMode}`);
   lines.push(`Runs: ${result.params.runs}`);
   lines.push("");
-  lines.push(`Combined p95 frame: mean=${fmtNumber(s.combinedP95FrameMs.mean)} ms, median=${fmtNumber(s.combinedP95FrameMs.median)} ms`);
+  lines.push(`Combined p95: median=${fmtNumber(s.combinedP95FrameMs.median)} ms, mean=${fmtNumber(s.combinedP95FrameMs.mean)} ms`);
   lines.push(`Combined worst frame: median=${fmtNumber(s.combinedWorstFrameMs.median)} ms`);
-  lines.push(`Combined mean FPS: median=${fmtNumber(s.combinedMeanFps.median)}`);
-  lines.push("");
   lines.push(`Load total: median=${fmtNumber(s.totalLoadMs.median)} ms`);
-  lines.push(`Pan p95: median=${fmtNumber(s.panP95FrameMs.median)} ms`);
-  lines.push(`Zoom p95: median=${fmtNumber(s.zoomP95FrameMs.median)} ms`);
-  lines.push(`Update p95: median=${fmtNumber(s.updateP95FrameMs.median)} ms`);
+  lines.push(`Initial render: median=${fmtNumber(s.initialRenderMs.median)} ms`);
+  lines.push(`Render wait timeouts: combined=${s.timeoutCounts.combined}`);
   lines.push("");
-  lines.push(`Render wait timeouts: pan=${s.timeoutCounts.pan}, zoom=${s.timeoutCounts.zoom}, update=${s.timeoutCounts.update}, combined=${s.timeoutCounts.combined}`);
-  lines.push("");
-  lines.push("Full parameters, metadata and raw per-event values are in copied JSON.");
+  lines.push("Copy CSV exports one compact analysis row.");
+
   output.textContent = lines.join("\n");
+}
+
+function toggleSettings() {
+  const controls = document.getElementById("controls");
+  controls.classList.toggle("collapsed");
+  setTimeout(() => map.updateSize(), 0);
 }
 
 function resetAll() {
   source.clear(true);
   lastResults = null;
-  headline.style.display = "none";
-  headlineMetric.textContent = "";
   const params = readParams();
   applyBackgroundMode();
   setViewport(params);
+  if (scoreBox && scoreValue) {
+    scoreBox.style.display = "none";
+    scoreValue.textContent = "";
+  }
+  if (window.matchMedia("(max-width: 650px)").matches) {
+    document.getElementById("controls").classList.add("collapsed");
+  }
+  setTimeout(() => map.updateSize(), 0);
   output.textContent = "Ready.";
+}
+
+
+
+function csvEscape(value) {
+  if (value === null || value === undefined) return "";
+  const s = String(value);
+  if (s.includes(",") || s.includes('"') || s.includes("\n")) {
+    return '"' + s.replaceAll('"', '""') + '"';
+  }
+  return s;
+}
+
+function makeAnalysisRow(result) {
+  const s = result.summary;
+  const p = result.params;
+  const c = p.fixedBenchmarkConstants || {};
+
+  return {
+    timestamp: result.timestamp,
+    polygonCount: p.count,
+    complexity: "complex_80_vertices",
+    viewportMode: p.viewportMode,
+    backgroundMode: p.backgroundMode,
+    runs: p.runs,
+    seed: p.seed,
+    updatePct: c.updatePct,
+    updateIntervalMs: c.updateIntervalMs,
+    combinedSteps: c.combinedSteps,
+    animationMs: c.animationMs,
+    userAgent: p.userAgent,
+    hardwareConcurrency: p.hardwareConcurrency,
+    devicePixelRatio: p.devicePixelRatio,
+    viewportWidth: p.viewport.width,
+    viewportHeight: p.viewport.height,
+    olVersion: p.olVersion,
+    loadTotalMedianMs: s.totalLoadMs.median,
+    initialRenderMedianMs: s.initialRenderMs.median,
+    combinedP95MedianMs: s.combinedP95FrameMs.median,
+    combinedP95MeanMs: s.combinedP95FrameMs.mean,
+    combinedWorstMedianMs: s.combinedWorstFrameMs.median,
+    combinedMeanFpsMedian: s.combinedMeanFps.median,
+    combinedTimeouts: s.timeoutCounts.combined
+  };
+}
+
+function makeAnalysisCsv(result) {
+  const row = makeAnalysisRow(result);
+  const headers = Object.keys(row);
+  const values = headers.map(h => csvEscape(row[h]));
+  return headers.join(",") + "\n" + values.join(",");
 }
 
 async function copyResults() {
@@ -480,14 +854,19 @@ async function copyResults() {
     output.textContent += "\nNo results to copy yet.";
     return;
   }
-  const text = JSON.stringify(lastResults, null, 2);
+
+  const text = makeAnalysisCsv(lastResults);
+
   try {
     await navigator.clipboard.writeText(text);
-    output.textContent += "\nCopied full JSON results to clipboard.";
+    output.textContent += "\nCopied analysis CSV row to clipboard.";
   } catch (e) {
-    output.textContent += "\nClipboard failed. Full JSON:\n" + text;
+    output.textContent += "\nClipboard failed. Analysis CSV:\n" + text;
   }
 }
+
+window.addEventListener("resize", () => map.updateSize());
+setTimeout(() => map.updateSize(), 0);
 </script>
 </body>
 </html>
