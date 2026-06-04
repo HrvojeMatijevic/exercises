@@ -219,13 +219,7 @@ setTimeout(() => map.updateSize(), 0);
 
   <div id="scoreBox">Combined p95: <span id="scoreValue" class="score"></span></div>
   <div id="map"></div>
-  <pre id="output">Ready.
-
-Minimal congress version:
-- Fixed seed: 12345.
-- Fixed complexity: 80-vertex irregular polygons.
-- Main metric: combined-test p95 frame time.
-- Copy CSV exports one compact analysis row.</pre>
+  <pre id="output">Ready.</pre>
 
 <script>
 "use strict";
@@ -749,30 +743,12 @@ async function runAll() {
 }
 
 function displaySummary(result) {
-  const s = result.summary;
   if (scoreBox && scoreValue) {
     scoreBox.style.display = "block";
     scoreValue.textContent = `${fmtNumber(result.mainMetric.valueMs)} ms`;
   }
 
-  const lines = [];
-  lines.push(`Combined-test p95 frame time: ${fmtNumber(result.mainMetric.valueMs)} ms`);
-  lines.push("");
-  lines.push(`Polygons: ${result.params.count}`);
-  lines.push(`Complexity: fixed 80-vertex irregular polygons`);
-  lines.push(`Mode: ${result.params.viewportMode}`);
-  lines.push(`Background: ${result.params.backgroundMode}`);
-  lines.push(`Runs: ${result.params.runs}`);
-  lines.push("");
-  lines.push(`Combined p95: median=${fmtNumber(s.combinedP95FrameMs.median)} ms, mean=${fmtNumber(s.combinedP95FrameMs.mean)} ms`);
-  lines.push(`Combined worst frame: median=${fmtNumber(s.combinedWorstFrameMs.median)} ms`);
-  lines.push(`Load total: median=${fmtNumber(s.totalLoadMs.median)} ms`);
-  lines.push(`Initial render: median=${fmtNumber(s.initialRenderMs.median)} ms`);
-  lines.push(`Render wait timeouts: combined=${s.timeoutCounts.combined}`);
-  lines.push("");
-  lines.push("Copy CSV exports one compact analysis row.");
-
-  output.textContent = lines.join("\n");
+  output.textContent = `Done. Combined-test p95 frame time: ${fmtNumber(result.mainMetric.valueMs)} ms`;
 }
 
 function toggleSettings() {
@@ -812,33 +788,17 @@ function csvEscape(value) {
 function makeAnalysisRow(result) {
   const s = result.summary;
   const p = result.params;
-  const c = p.fixedBenchmarkConstants || {};
 
   return {
-    timestamp: result.timestamp,
     polygonCount: p.count,
-    complexity: "complex_80_vertices",
-    viewportMode: p.viewportMode,
-    backgroundMode: p.backgroundMode,
+    zoomRestricted: p.viewportMode === "editing" ? "yes" : "no",
+    background: p.backgroundMode === "osm" ? "yes" : "no",
     runs: p.runs,
-    seed: p.seed,
-    updatePct: c.updatePct,
-    updateIntervalMs: c.updateIntervalMs,
-    combinedSteps: c.combinedSteps,
-    animationMs: c.animationMs,
-    userAgent: p.userAgent,
-    hardwareConcurrency: p.hardwareConcurrency,
-    devicePixelRatio: p.devicePixelRatio,
-    viewportWidth: p.viewport.width,
-    viewportHeight: p.viewport.height,
-    olVersion: p.olVersion,
     loadTotalMedianMs: s.totalLoadMs.median,
     initialRenderMedianMs: s.initialRenderMs.median,
     combinedP95MedianMs: s.combinedP95FrameMs.median,
-    combinedP95MeanMs: s.combinedP95FrameMs.mean,
     combinedWorstMedianMs: s.combinedWorstFrameMs.median,
-    combinedMeanFpsMedian: s.combinedMeanFps.median,
-    combinedTimeouts: s.timeoutCounts.combined
+    combinedMeanFpsMedian: s.combinedMeanFps.median
   };
 }
 
@@ -851,7 +811,7 @@ function makeAnalysisCsv(result) {
 
 async function copyResults() {
   if (!lastResults) {
-    output.textContent += "\nNo results to copy yet.";
+    output.textContent = "No results to copy yet.";
     return;
   }
 
@@ -859,9 +819,9 @@ async function copyResults() {
 
   try {
     await navigator.clipboard.writeText(text);
-    output.textContent += "\nCopied analysis CSV row to clipboard.";
+    output.textContent = "Copied CSV row to clipboard.";
   } catch (e) {
-    output.textContent += "\nClipboard failed. Analysis CSV:\n" + text;
+    output.textContent = "Clipboard failed. Analysis CSV:\n" + text;
   }
 }
 
