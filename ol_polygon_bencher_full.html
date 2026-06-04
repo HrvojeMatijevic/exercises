@@ -6,18 +6,34 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
 
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@10.6.1/ol.css">
-  <script src="https://cdn.jsdelivr.net/npm/ol@10.6.1/dist/ol.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/ol@10.6.1/dist/ol.js">window.addEventListener("resize", () => map.updateSize());
+setTimeout(() => map.updateSize(), 0);
+</script>
 
   <style>
     html, body {
       margin: 0;
       height: 100%;
       font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      overflow: hidden;
     }
 
     body {
       display: flex;
       flex-direction: column;
+      max-width: 100vw;
+    }
+
+    #topbar {
+      background: #f3f3f3;
+      border-bottom: 1px solid #ccc;
+      padding: 8px;
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 8px;
+      align-items: stretch;
+      max-width: 100vw;
+      box-sizing: border-box;
     }
 
     #controls {
@@ -29,12 +45,19 @@
       gap: 8px;
       align-items: end;
       font-size: 14px;
+      max-width: 100vw;
+      box-sizing: border-box;
+    }
+
+    #controls.collapsed {
+      display: none;
     }
 
     label {
       display: flex;
       flex-direction: column;
       gap: 3px;
+      min-width: 0;
     }
 
     input, select, button {
@@ -42,6 +65,9 @@
       padding: 7px;
       min-height: 38px;
       box-sizing: border-box;
+      width: 100%;
+      max-width: 100%;
+      min-width: 0;
     }
 
     button {
@@ -50,21 +76,23 @@
 
     #map {
       flex: 1;
-      min-height: 300px;
+      min-height: 260px;
       background: #fafafa;
     }
 
     #scoreBox {
       background: #fff8d8;
       border-bottom: 1px solid #d6c36a;
-      padding: 10px 12px;
-      font-size: 18px;
+      padding: 8px 12px;
+      font-size: 16px;
       font-weight: 700;
       display: none;
+      max-width: 100vw;
+      box-sizing: border-box;
     }
 
     #scoreBox .score {
-      font-size: 32px;
+      font-size: 28px;
       font-weight: 900;
       margin-left: 8px;
     }
@@ -75,9 +103,11 @@
       padding: 8px;
       font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
       font-size: 12px;
-      max-height: 38vh;
+      max-height: 26vh;
       overflow: auto;
       white-space: pre-wrap;
+      box-sizing: border-box;
+      max-width: 100vw;
     }
 
     .wide {
@@ -85,18 +115,73 @@
     }
 
     @media (max-width: 650px) {
+      #topbar {
+        grid-template-columns: 1fr 1fr 1fr;
+        padding: 6px;
+        gap: 6px;
+      }
+
       #controls {
         grid-template-columns: 1fr 1fr;
+        padding: 6px;
+        gap: 6px;
+        font-size: 12px;
       }
-      .wide {
+
+      #controls .wide {
         grid-column: span 2;
+      }
+
+      #controls button {
+        display: none;
+      }
+
+      input, select, button {
+        font-size: 14px;
+        min-height: 34px;
+        padding: 5px;
+      }
+
+      #scoreBox {
+        padding: 5px 8px;
+        font-size: 13px;
+      }
+
+      #scoreBox .score {
+        font-size: 20px;
+      }
+
+      #output {
+        max-height: 18vh;
+        font-size: 11px;
+        padding: 6px;
+      }
+
+      #map {
+        min-height: 360px;
+      }
+    }
+
+    @media (min-width: 651px) {
+      #topbar {
+        display: none;
+      }
+
+      #controls.collapsed {
+        display: grid;
       }
     }
   </style>
 </head>
 
 <body>
-  <div id="controls">
+  <div id="topbar">
+    <button onclick="runAll()">Run</button>
+    <button onclick="toggleSettings()">Settings</button>
+    <button onclick="copyResults()">Copy CSV</button>
+  </div>
+
+  <div id="controls" class="collapsed">
     <label>
       Polygon count
       <input id="count" type="number" value="5000" min="100" step="100">
@@ -136,11 +221,7 @@
       Seed
       <input id="seed" type="number" value="12345">
     </label>
-
-    <button onclick="runAll()" class="wide">Run benchmark</button>
-    <button onclick="resetAll()">Reset</button>
-    <button onclick="copyResults()">Copy analysis CSV</button>
-  </div>
+</div>
 
   <div id="scoreBox">Final score: <span id="scoreValue" class="score"></span></div>
   <div id="map"></div>
@@ -630,6 +711,11 @@ async function runAll() {
   const loadRuns = [];
   const combinedRuns = [];
 
+  if (window.matchMedia("(max-width: 650px)").matches) {
+    document.getElementById("controls").classList.add("collapsed");
+    setTimeout(() => map.updateSize(), 0);
+  }
+
   log("Running load + live-update combined benchmark...");
 
   for (let i = 1; i <= params.runs; i++) {
@@ -723,6 +809,12 @@ function displaySummary(result) {
   output.textContent = lines.join("\n");
 }
 
+function toggleSettings() {
+  const controls = document.getElementById("controls");
+  controls.classList.toggle("collapsed");
+  setTimeout(() => map.updateSize(), 0);
+}
+
 function resetAll() {
   source.clear(true);
   lastResults = null;
@@ -733,6 +825,10 @@ function resetAll() {
     scoreBox.style.display = "none";
     scoreValue.textContent = "";
   }
+  if (window.matchMedia("(max-width: 650px)").matches) {
+    document.getElementById("controls").classList.add("collapsed");
+  }
+  setTimeout(() => map.updateSize(), 0);
   output.textContent = "Ready.";
 }
 
@@ -813,6 +909,8 @@ async function copyResults() {
   }
 }
 
+window.addEventListener("resize", () => map.updateSize());
+setTimeout(() => map.updateSize(), 0);
 </script>
 </body>
 </html>
