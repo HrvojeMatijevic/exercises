@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>OpenLayers Polygon Benchmark - Frame Gap Version</title>
+  <title>OpenLayers Polygon Interaction Benchmark</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
 
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@10.6.1/ol.css">
@@ -219,7 +219,7 @@ setTimeout(() => map.updateSize(), 0);
 
   <div id="scoreBox">Frame p95: <span id="scoreValue" class="score"></span></div>
   <div id="map"></div>
-  <pre id="output">Ready. Main metric: p95 frame gap. Runs fixed to 3; update intensity is absolute ops/s.</pre>
+  <pre id="output">Ready. Interaction-only benchmark: p95 frame gap, max frame gap, and update CPU.</pre>
 
 <script>
 "use strict";
@@ -725,7 +725,6 @@ async function runAll() {
   const params = readParams();
   applyBackgroundMode();
 
-  const loadRuns = [];
   const combinedRuns = [];
 
   if (window.matchMedia("(max-width: 650px)").matches) {
@@ -733,15 +732,13 @@ async function runAll() {
     setTimeout(() => map.updateSize(), 0);
   }
 
-  log("Running frame-gap benchmark...");
+  log("Running interaction benchmark...");
 
   for (let i = 1; i <= params.runs; i++) {
-    log(`Run ${i}/${params.runs}: loading/rendering fixed 80-vertex polygons...`);
-    const load = await loadAndRenderOnce(params);
-    loadRuns.push(load);
+    log(`Run ${i}/${params.runs}: preparing fixed 80-vertex polygon layer...`);
+    await loadAndRenderOnce(params);
 
     log(`Run ${i}/${params.runs}: navigation with live geometry updates...`);
-    await loadAndRenderOnce(params);
     const combined = await combinedBenchmark(params);
     combinedRuns.push(combined);
 
@@ -761,14 +758,9 @@ async function runAll() {
       maxMs: frameP95Stats.max
     },
     raw: {
-      loadRuns,
       combinedRuns
     },
     summary: {
-      generationMs: stats(loadRuns.map(r => r.generationMs)),
-      addFeaturesMs: stats(loadRuns.map(r => r.addFeaturesMs)),
-      initialRenderMs: stats(loadRuns.map(r => r.initialRenderMs)),
-      totalLoadMs: stats(loadRuns.map(r => r.totalLoadMs)),
       frameP95Ms: frameP95Stats,
       frameMaxMs: stats(combinedRuns.map(r => r.frameMaxMs.median)),
       frameMedianMs: stats(combinedRuns.map(r => r.frameMedianMs.median)),
@@ -797,7 +789,7 @@ function displaySummary(result) {
   output.textContent =
     `Done. Frame p95: ${fmtNumber(result.mainMetric.valueMs)} ms\n` +
     `Frame max: ${fmtNumber(result.summary.frameMaxMs.median)} ms\n` +
-    `Update intensity: ${result.params.updateIntensity} (${fmtNumber(result.params.updatesPerSecond, 0)} updates/s)\n` +
+    `Update intensity: ${result.params.updateIntensity} (${fmtNumber(result.params.updatesPerSecond, 0)} ops/s)\n` +
     `Update CPU median total: ${fmtNumber(result.summary.totalUpdateCpuMs.median)} ms`;
 }
 
@@ -848,8 +840,6 @@ function makeAnalysisRow(result) {
     updatesPerTick: p.updatesPerTick,
     updateIntervalMs: p.fixedBenchmarkConstants.updateIntervalMs,
     updatesPerSecond: p.updatesPerSecond,
-    loadTotalMedianMs: s.totalLoadMs.median,
-    initialRenderMedianMs: s.initialRenderMs.median,
     frameP95MedianMs: s.frameP95Ms.median,
     frameMaxMedianMs: s.frameMaxMs.median,
     meanFpsMedian: s.meanFps.median,
