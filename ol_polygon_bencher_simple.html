@@ -471,7 +471,7 @@ function makeIrregular(cx, cy, radius, vertices, rng) {
 function generateFeatures(count, complexity, seed) {
   const rng = mulberry32(seed);
   const features = new Array(count);
-  const vertices = 2000;
+  const vertices = 800;
 
   for (let i = 0; i < count; i++) {
     const [cx, cy] = randomCenter(rng);
