@@ -208,18 +208,18 @@ setTimeout(() => map.updateSize(), 0);
     </label>
 
     <label>
-      Runs
-      <select id="runs">
-        <option value="3">3</option>
-        <option value="5" selected>5</option>
-        <option value="10">10</option>
+      Update intensity
+      <select id="updateIntensity">
+        <option value="none">None (0 ops/s)</option>
+        <option value="intensive" selected>Intensive (20 ops/s)</option>
+        <option value="extreme">Extreme (100 ops/s)</option>
       </select>
     </label>
   </div>
 
   <div id="scoreBox">Frame p95: <span id="scoreValue" class="score"></span></div>
   <div id="map"></div>
-  <pre id="output">Ready. Main metric: p95 frame gap. Secondary: max frame gap and update CPU.</pre>
+  <pre id="output">Ready. Main metric: p95 frame gap. Runs fixed to 3; update intensity is absolute ops/s.</pre>
 
 <script>
 "use strict";
@@ -237,28 +237,28 @@ const BENCHMARK = {
   pauseMs: 250,
   animationMs: 650,
   renderTimeoutMs: 2500,
-  eventLoopProbeMs: 16,
+  runs: 3,
 
-  //updatePct: 1,
-  //burstRepeats: 1,
-  //updateIntervalMs: 100,
-
-  updatePct: 7,
-  burstRepeats: 1,
+  // Absolute update intensity presets, independent of polygon count.
+  // With updateIntervalMs=100:
+  // none      = 0 geometry updates/s
+  // intensive = 20 geometry updates/s
+  // extreme   = 100 geometry updates/s
   updateIntervalMs: 100,
-
-  //updatePct: 15,
-  //burstRepeats: 1,
-  //updateIntervalMs: 100,
+  updatePresets: {
+    none: 0,
+    intensive: 2,
+    extreme: 10
+  },
 
   // visual/edit displacement for single-vertex changes, in map units (EPSG:3857 meters)
   vertexDisplacement: 12000,
 
 overview: {
   centerLonLat: [16.2, 45.4],
-  zoom: 8.5,
-  panStep: 120000,
-  zoomDelta: 1.0
+  zoom: 10.4,
+  panStep: 45000,
+  zoomDelta: 0.9
 },
 
   editing: {
@@ -417,6 +417,17 @@ function formatLoad(count) {
     return Number.isInteger(k) ? `${k}K` : `${k.toFixed(1)}K`;
   }
   return `${count}`;
+}
+
+function getSelectedUpdatePreset() {
+  const el = document.getElementById("updateIntensity");
+  const key = el ? el.value : "intensive";
+  const updatesPerTick = BENCHMARK.updatePresets[key] ?? BENCHMARK.updatePresets.intensive;
+  return {
+    key,
+    updatesPerTick,
+    updatesPerSecond: updatesPerTick * 1000 / BENCHMARK.updateIntervalMs
+  };
 }
 
 function applyBackgroundMode() {
@@ -595,7 +606,8 @@ async function combinedBenchmark(params) {
   const view = map.getView();
   const center = view.getCenter();
   const rng = mulberry32(params.seed + 2025);
-  const updateCount = Math.floor(features.length * BENCHMARK.updatePct / 100);
+  const updatePreset = getSelectedUpdatePreset();
+  const updateCount = Math.min(features.length, updatePreset.updatesPerTick);
 
   const dirs = [
     [1, 0], [-1, 0], [0, 1], [0, -1],
@@ -612,7 +624,7 @@ async function combinedBenchmark(params) {
 
     const updateCpuTimesMs = [];
     let updateTickCount = 0;
-    let totalVertexUpdates = 0;
+    let totalGeometryUpdates = 0;
     let updateTimer = null;
 
     const result = await measureFramesDuring(() => {
@@ -623,10 +635,8 @@ async function combinedBenchmark(params) {
         updateTimer = setInterval(() => {
           const t0 = performance.now();
 
-          for (let b = 0; b < BENCHMARK.burstRepeats; b++) {
-            applyUpdateBatch(features, rng, updateCount);
-            totalVertexUpdates += updateCount;
-          }
+          applyUpdateBatch(features, rng, updateCount);
+          totalGeometryUpdates += updateCount;
 
           const t1 = performance.now();
           updateCpuTimesMs.push(t1 - t0);
@@ -644,11 +654,13 @@ async function combinedBenchmark(params) {
     if (updateTimer !== null) clearInterval(updateTimer);
 
     result.updateCountPerTick = updateCount;
+    result.updateIntensity = updatePreset.key;
+    result.updatesPerTickConfigured = updatePreset.updatesPerTick;
+    result.updatesPerSecondConfigured = updatePreset.updatesPerSecond;
     result.updateIntervalMs = BENCHMARK.updateIntervalMs;
-    result.burstRepeats = BENCHMARK.burstRepeats;
     result.totalAnimationMs = totalAnimationMs;
     result.updateTickCount = updateTickCount;
-    result.totalVertexUpdates = totalVertexUpdates;
+    result.totalGeometryUpdates = totalGeometryUpdates;
     result.updateCpuTimesMs = updateCpuTimesMs;
     result.updateCpuStatsMs = stats(updateCpuTimesMs);
     result.totalUpdateCpuMs = sum(updateCpuTimesMs);
@@ -671,7 +683,7 @@ function summarizeTransitionEvents(events) {
     meanFps: stats(events.map(e => e.meanFps)),
     durationMs: stats(events.map(e => e.durationMs)),
     updateTickCount: stats(events.map(e => e.updateTickCount || 0)),
-    totalVertexUpdates: stats(events.map(e => e.totalVertexUpdates || 0)),
+    totalGeometryUpdates: stats(events.map(e => e.totalGeometryUpdates || 0)),
     totalUpdateCpuMs: stats(events.map(e => e.totalUpdateCpuMs || 0)),
     meanUpdateCpuMs: stats(events.map(e => e.updateCpuStatsMs ? e.updateCpuStatsMs.mean : 0)),
     maxUpdateCpuMs: stats(events.map(e => e.updateCpuStatsMs ? e.updateCpuStatsMs.max : 0))
@@ -689,7 +701,10 @@ function readParams() {
     vertices: 80,
     viewportMode: document.getElementById("viewportMode").value,
     backgroundMode: document.getElementById("backgroundMode").value,
-    runs: Number(document.getElementById("runs").value),
+    updateIntensity: getSelectedUpdatePreset().key,
+    updatesPerTick: getSelectedUpdatePreset().updatesPerTick,
+    updatesPerSecond: getSelectedUpdatePreset().updatesPerSecond,
+    runs: BENCHMARK.runs,
     seed: 12345,
     updateMode: "single_vertex_geometry_replacement_no_restyle",
     navigationMode: "animated_navigation_with_live_geometry_updates",
@@ -759,7 +774,7 @@ async function runAll() {
       frameMedianMs: stats(combinedRuns.map(r => r.frameMedianMs.median)),
       meanFps: stats(combinedRuns.map(r => r.meanFps.median)),
       updateTickCount: stats(combinedRuns.map(r => r.updateTickCount.median)),
-      totalVertexUpdates: stats(combinedRuns.map(r => r.totalVertexUpdates.median)),
+      totalGeometryUpdates: stats(combinedRuns.map(r => r.totalGeometryUpdates.median)),
       totalUpdateCpuMs: stats(combinedRuns.map(r => r.totalUpdateCpuMs.median)),
       meanUpdateCpuMs: stats(combinedRuns.map(r => r.meanUpdateCpuMs.median)),
       maxUpdateCpuMs: stats(combinedRuns.map(r => r.maxUpdateCpuMs.median)),
@@ -782,6 +797,7 @@ function displaySummary(result) {
   output.textContent =
     `Done. Frame p95: ${fmtNumber(result.mainMetric.valueMs)} ms\n` +
     `Frame max: ${fmtNumber(result.summary.frameMaxMs.median)} ms\n` +
+    `Update intensity: ${result.params.updateIntensity} (${fmtNumber(result.params.updatesPerSecond, 0)} updates/s)\n` +
     `Update CPU median total: ${fmtNumber(result.summary.totalUpdateCpuMs.median)} ms`;
 }
 
@@ -828,13 +844,17 @@ function makeAnalysisRow(result) {
     zoomRestricted: p.viewportMode === "editing" ? "yes" : "no",
     background: p.backgroundMode === "osm" ? "yes" : "no",
     runs: p.runs,
+    updateIntensity: p.updateIntensity,
+    updatesPerTick: p.updatesPerTick,
+    updateIntervalMs: p.fixedBenchmarkConstants.updateIntervalMs,
+    updatesPerSecond: p.updatesPerSecond,
     loadTotalMedianMs: s.totalLoadMs.median,
     initialRenderMedianMs: s.initialRenderMs.median,
     frameP95MedianMs: s.frameP95Ms.median,
     frameMaxMedianMs: s.frameMaxMs.median,
     meanFpsMedian: s.meanFps.median,
     updateTickCountMedian: s.updateTickCount.median,
-    totalVertexUpdatesMedian: s.totalVertexUpdates.median,
+    totalGeometryUpdatesMedian: s.totalGeometryUpdates.median,
     totalUpdateCpuMsMedian: s.totalUpdateCpuMs.median,
     meanUpdateCpuMsMedian: s.meanUpdateCpuMs.median,
     maxUpdateCpuMsMedian: s.maxUpdateCpuMs.median
