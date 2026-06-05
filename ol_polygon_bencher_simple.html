@@ -213,7 +213,7 @@ setTimeout(() => map.updateSize(), 0);
         <option value="none">None (0 ops/s)</option>
         <option value="intensive" selected>Intensive (20 ops/s)</option>
         <option value="stressed">Stressed (100 ops/s)</option>
-        <option value="extreme">Extreme (1000 ops/s)</option>
+        <option value="extreme">Extreme (5000 ops/s)</option>
       </select>
     </label>
   </div>
@@ -232,7 +232,7 @@ setTimeout(() => map.updateSize(), 0);
 const BENCHMARK = {
   seed: 12345,
   complexity: "complex",
-  vertices: 80,
+  vertices: 80000,
   combinedSteps: 3,
 
   pauseMs: 250,
@@ -471,7 +471,7 @@ function makeIrregular(cx, cy, radius, vertices, rng) {
 function generateFeatures(count, complexity, seed) {
   const rng = mulberry32(seed);
   const features = new Array(count);
-  const vertices = 80;
+  const vertices = 2000;
 
   for (let i = 0; i < count; i++) {
     const [cx, cy] = randomCenter(rng);
