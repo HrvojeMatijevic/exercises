@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>OpenLayers Polygon Benchmark - Minimal Congress Version</title>
+  <title>OpenLayers Polygon Benchmark - Frame Gap Version</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
 
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@10.6.1/ol.css">
@@ -217,9 +217,9 @@ setTimeout(() => map.updateSize(), 0);
     </label>
   </div>
 
-  <div id="scoreBox">Navigation/update p95: <span id="scoreValue" class="score"></span></div>
+  <div id="scoreBox">Frame p95: <span id="scoreValue" class="score"></span></div>
   <div id="map"></div>
-  <pre id="output">Ready.</pre>
+  <pre id="output">Ready. Main metric: p95 frame gap. Secondary: max frame gap and update CPU.</pre>
 
 <script>
 "use strict";
@@ -237,10 +237,19 @@ const BENCHMARK = {
   pauseMs: 250,
   animationMs: 650,
   renderTimeoutMs: 2500,
+  eventLoopProbeMs: 16,
 
-  updatePct: 3,
+  updatePct: 1,
   burstRepeats: 1,
-  updateIntervalMs: 150,
+  updateIntervalMs: 100,
+
+  //updatePct: 7,
+  //burstRepeats: 1,
+  //updateIntervalMs: 100,
+
+  //updatePct: 15,
+  //burstRepeats: 1,
+  //updateIntervalMs: 100,
 
   // visual/edit displacement for single-vertex changes, in map units (EPSG:3857 meters)
   vertexDisplacement: 12000,
@@ -371,6 +380,11 @@ function stats(values) {
     median: sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2,
     p95: sorted[idx95]
   };
+}
+
+
+function sum(values) {
+  return values.reduce((a, b) => a + b, 0);
 }
 
 function fmtNumber(x, digits = 1) {
@@ -517,22 +531,21 @@ async function measureFramesDuring(actionFn, expectedDurationMs) {
   const t0 = performance.now();
   actionFn();
 
-  // Wait for the intended visual transition plus a small render settlement buffer.
   await sleep(expectedDurationMs + 120);
   const renderWait = await waitRender();
 
   const t1 = performance.now();
   running = false;
 
-  const cleaned = frameTimes.slice(1);
-  const s = stats(cleaned);
+  const cleanedFrames = frameTimes.slice(1);
+  const frameStats = stats(cleanedFrames);
 
   return {
     durationMs: t1 - t0,
-    frameCount: cleaned.length,
-    frameTimesMs: cleaned,
-    frameStats: s,
-    meanFps: s.mean ? 1000 / s.mean : null,
+    frameCount: cleanedFrames.length,
+    frameTimesMs: cleanedFrames,
+    frameStats: frameStats,
+    meanFps: frameStats.mean ? 1000 / frameStats.mean : null,
     renderTimedOut: renderWait.timedOut
   };
 }
@@ -582,7 +595,7 @@ async function combinedBenchmark(params) {
   const view = map.getView();
   const center = view.getCenter();
   const rng = mulberry32(params.seed + 2025);
-  const updateCount = Math.max(1, Math.floor(features.length * BENCHMARK.updatePct / 100));
+  const updateCount = Math.floor(features.length * BENCHMARK.updatePct / 100);
 
   const dirs = [
     [1, 0], [-1, 0], [0, 1], [0, -1],
@@ -597,43 +610,48 @@ async function combinedBenchmark(params) {
     const d = dirs[i % dirs.length];
     const target = [center[0] + d[0] * cfg.panStep, center[1] + d[1] * cfg.panStep];
 
+    const updateCpuTimesMs = [];
+    let updateTickCount = 0;
+    let totalVertexUpdates = 0;
+    let updateTimer = null;
+
     const result = await measureFramesDuring(() => {
       const zoomDelta = (i % 2 === 0) ? cfg.zoomDelta : -cfg.zoomDelta;
       const targetZoom = cfg.zoom + zoomDelta;
 
-      // Start navigation first.
+      if (updateCount > 0) {
+        updateTimer = setInterval(() => {
+          const t0 = performance.now();
+
+          for (let b = 0; b < BENCHMARK.burstRepeats; b++) {
+            applyUpdateBatch(features, rng, updateCount);
+            totalVertexUpdates += updateCount;
+          }
+
+          const t1 = performance.now();
+          updateCpuTimesMs.push(t1 - t0);
+          updateTickCount += 1;
+        }, BENCHMARK.updateIntervalMs);
+      }
+
       view.animate(
-        {
-          zoom: targetZoom,
-          duration: BENCHMARK.animationMs
-        },
-        {
-          center: target,
-          duration: BENCHMARK.animationMs
-        },
-        {
-          zoom: cfg.zoom,
-          duration: BENCHMARK.animationMs
-        }
+        { zoom: targetZoom, duration: BENCHMARK.animationMs },
+        { center: target, duration: BENCHMARK.animationMs },
+        { zoom: cfg.zoom, duration: BENCHMARK.animationMs }
       );
-
-      // Inject geometry updates while navigation is running.
-      // This simulates remote operations arriving during local map movement.
-      const updateTimer = setInterval(() => {
-        for (let b = 0; b < BENCHMARK.burstRepeats; b++) {
-          applyUpdateBatch(features, rng, updateCount);
-        }
-      }, BENCHMARK.updateIntervalMs);
-
-      setTimeout(() => {
-        clearInterval(updateTimer);
-      }, totalAnimationMs);
     }, totalAnimationMs);
+
+    if (updateTimer !== null) clearInterval(updateTimer);
 
     result.updateCountPerTick = updateCount;
     result.updateIntervalMs = BENCHMARK.updateIntervalMs;
     result.burstRepeats = BENCHMARK.burstRepeats;
     result.totalAnimationMs = totalAnimationMs;
+    result.updateTickCount = updateTickCount;
+    result.totalVertexUpdates = totalVertexUpdates;
+    result.updateCpuTimesMs = updateCpuTimesMs;
+    result.updateCpuStatsMs = stats(updateCpuTimesMs);
+    result.totalUpdateCpuMs = sum(updateCpuTimesMs);
 
     events.push(result);
     await sleep(BENCHMARK.pauseMs);
@@ -647,11 +665,16 @@ function summarizeTransitionEvents(events) {
     eventCount: events.length,
     timeoutCount: events.filter(e => e.renderTimedOut).length,
     events,
-    medianFrameMs: stats(events.map(e => e.frameStats.median)),
-    p95FrameMs: stats(events.map(e => e.frameStats.p95)),
-    worstFrameMs: stats(events.map(e => e.frameStats.max)),
+    frameMedianMs: stats(events.map(e => e.frameStats.median)),
+    frameP95Ms: stats(events.map(e => e.frameStats.p95)),
+    frameMaxMs: stats(events.map(e => e.frameStats.max)),
     meanFps: stats(events.map(e => e.meanFps)),
-    durationMs: stats(events.map(e => e.durationMs))
+    durationMs: stats(events.map(e => e.durationMs)),
+    updateTickCount: stats(events.map(e => e.updateTickCount || 0)),
+    totalVertexUpdates: stats(events.map(e => e.totalVertexUpdates || 0)),
+    totalUpdateCpuMs: stats(events.map(e => e.totalUpdateCpuMs || 0)),
+    meanUpdateCpuMs: stats(events.map(e => e.updateCpuStatsMs ? e.updateCpuStatsMs.mean : 0)),
+    maxUpdateCpuMs: stats(events.map(e => e.updateCpuStatsMs ? e.updateCpuStatsMs.max : 0))
   };
 }
 
@@ -695,14 +718,14 @@ async function runAll() {
     setTimeout(() => map.updateSize(), 0);
   }
 
-  log("Running minimal benchmark...");
+  log("Running frame-gap benchmark...");
 
   for (let i = 1; i <= params.runs; i++) {
     log(`Run ${i}/${params.runs}: loading/rendering fixed 80-vertex polygons...`);
     const load = await loadAndRenderOnce(params);
     loadRuns.push(load);
 
-    log(`Run ${i}/${params.runs}: combined live-update navigation benchmark...`);
+    log(`Run ${i}/${params.runs}: navigation with live geometry updates...`);
     await loadAndRenderOnce(params);
     const combined = await combinedBenchmark(params);
     combinedRuns.push(combined);
@@ -710,17 +733,17 @@ async function runAll() {
     await sleep(300);
   }
 
-  const combinedP95Stats = stats(combinedRuns.map(r => r.p95FrameMs.median));
+  const frameP95Stats = stats(combinedRuns.map(r => r.frameP95Ms.median));
 
   const result = {
     timestamp: new Date().toISOString(),
     params,
     mainMetric: {
-      metric: "median p95 frame time from animated navigation with live geometry updates",
-      valueMs: combinedP95Stats.median,
-      meanMs: combinedP95Stats.mean,
-      minMs: combinedP95Stats.min,
-      maxMs: combinedP95Stats.max
+      metric: "median p95 frame gap during animated navigation with live geometry updates",
+      valueMs: frameP95Stats.median,
+      meanMs: frameP95Stats.mean,
+      minMs: frameP95Stats.min,
+      maxMs: frameP95Stats.max
     },
     raw: {
       loadRuns,
@@ -731,9 +754,15 @@ async function runAll() {
       addFeaturesMs: stats(loadRuns.map(r => r.addFeaturesMs)),
       initialRenderMs: stats(loadRuns.map(r => r.initialRenderMs)),
       totalLoadMs: stats(loadRuns.map(r => r.totalLoadMs)),
-      combinedP95FrameMs: combinedP95Stats,
-      combinedWorstFrameMs: stats(combinedRuns.map(r => r.worstFrameMs.median)),
-      combinedMeanFps: stats(combinedRuns.map(r => r.meanFps.median)),
+      frameP95Ms: frameP95Stats,
+      frameMaxMs: stats(combinedRuns.map(r => r.frameMaxMs.median)),
+      frameMedianMs: stats(combinedRuns.map(r => r.frameMedianMs.median)),
+      meanFps: stats(combinedRuns.map(r => r.meanFps.median)),
+      updateTickCount: stats(combinedRuns.map(r => r.updateTickCount.median)),
+      totalVertexUpdates: stats(combinedRuns.map(r => r.totalVertexUpdates.median)),
+      totalUpdateCpuMs: stats(combinedRuns.map(r => r.totalUpdateCpuMs.median)),
+      meanUpdateCpuMs: stats(combinedRuns.map(r => r.meanUpdateCpuMs.median)),
+      maxUpdateCpuMs: stats(combinedRuns.map(r => r.maxUpdateCpuMs.median)),
       timeoutCounts: {
         combined: combinedRuns.reduce((a, r) => a + r.timeoutCount, 0)
       }
@@ -750,7 +779,10 @@ function displaySummary(result) {
     scoreValue.textContent = `${fmtNumber(result.mainMetric.valueMs)} ms`;
   }
 
-  output.textContent = `Done. Navigation/update p95 frame time: ${fmtNumber(result.mainMetric.valueMs)} ms`;
+  output.textContent =
+    `Done. Frame p95: ${fmtNumber(result.mainMetric.valueMs)} ms\n` +
+    `Frame max: ${fmtNumber(result.summary.frameMaxMs.median)} ms\n` +
+    `Update CPU median total: ${fmtNumber(result.summary.totalUpdateCpuMs.median)} ms`;
 }
 
 function toggleSettings() {
@@ -798,9 +830,14 @@ function makeAnalysisRow(result) {
     runs: p.runs,
     loadTotalMedianMs: s.totalLoadMs.median,
     initialRenderMedianMs: s.initialRenderMs.median,
-    navUpdateP95MedianMs: s.combinedP95FrameMs.median,
-    navUpdateWorstMedianMs: s.combinedWorstFrameMs.median,
-    navUpdateMeanFpsMedian: s.combinedMeanFps.median
+    frameP95MedianMs: s.frameP95Ms.median,
+    frameMaxMedianMs: s.frameMaxMs.median,
+    meanFpsMedian: s.meanFps.median,
+    updateTickCountMedian: s.updateTickCount.median,
+    totalVertexUpdatesMedian: s.totalVertexUpdates.median,
+    totalUpdateCpuMsMedian: s.totalUpdateCpuMs.median,
+    meanUpdateCpuMsMedian: s.meanUpdateCpuMs.median,
+    maxUpdateCpuMsMedian: s.maxUpdateCpuMs.median
   };
 }
 
