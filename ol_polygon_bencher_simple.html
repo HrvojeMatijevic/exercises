@@ -178,6 +178,8 @@ setTimeout(() => map.updateSize(), 0);
     <label>
       Polygon count
       <select id="count">
+        <option value="100">100</option>
+        <option value="1000">1K</option>
         <option value="5000">5K</option>
         <option value="10000">10K</option>
         <option value="15000">15K</option>
@@ -232,7 +234,7 @@ setTimeout(() => map.updateSize(), 0);
 const BENCHMARK = {
   seed: 12345,
   complexity: "complex",
-  vertices: 80000,
+  vertices: 100000,
   combinedSteps: 3,
 
   pauseMs: 250,
@@ -468,17 +470,79 @@ function makeIrregular(cx, cy, radius, vertices, rng) {
   return [ring];
 }
 
+
+function makeWavyRectangle(cx, cy, width, height, vertices, rng) {
+  const ring = [];
+  const perSide = Math.floor(vertices / 4);
+  const amp = Math.min(width, height) * 0.03;
+
+  function jitter(t, phase1, phase2) {
+    return amp * (
+      0.65 * Math.sin(t * Math.PI * 2 * 3 + phase1) +
+      0.35 * Math.sin(t * Math.PI * 2 * 11 + phase2)
+    );
+  }
+
+  const p1 = rng() * Math.PI * 2;
+  const p2 = rng() * Math.PI * 2;
+
+  // bottom
+  for (let i = 0; i < perSide; i++) {
+    const t = i / perSide;
+    ring.push([
+      cx - width / 2 + t * width,
+      cy - height / 2 + jitter(t, p1, p2)
+    ]);
+  }
+
+  // right
+  for (let i = 0; i < perSide; i++) {
+    const t = i / perSide;
+    ring.push([
+      cx + width / 2 + jitter(t, p2, p1),
+      cy - height / 2 + t * height
+    ]);
+  }
+
+  // top
+  for (let i = 0; i < perSide; i++) {
+    const t = i / perSide;
+    ring.push([
+      cx + width / 2 - t * width,
+      cy + height / 2 + jitter(t, p1 + 1.7, p2 + 2.3)
+    ]);
+  }
+
+  // left
+  for (let i = 0; i < perSide; i++) {
+    const t = i / perSide;
+    ring.push([
+      cx - width / 2 + jitter(t, p2 + 1.1, p1 + 0.9),
+      cy + height / 2 - t * height
+    ]);
+  }
+
+  ring.push(ring[0].slice());
+  return [ring];
+}
+
 function generateFeatures(count, complexity, seed) {
   const rng = mulberry32(seed);
   const features = new Array(count);
-  const vertices = 800;
+  //const vertices = 5000;
 
   for (let i = 0; i < count; i++) {
     const [cx, cy] = randomCenter(rng);
     //const base = 1200 + rng() * 5000;
     const densityScale = Math.sqrt(5000 / count);
     const base = (1200 + rng() * 5000) * densityScale;
-    const coords = makeIrregular(cx, cy, base, vertices, rng);
+    //const coords = makeIrregular(cx, cy, base, vertices, rng);
+
+
+    const vertices = BENCHMARK.vertices; // e.g. 10000
+    const width = base * (1.0 + rng() * 0.8);
+    const height = base * (0.6 + rng() * 0.7);
+    const coords = makeWavyRectangle(cx, cy, width, height, vertices, rng);
 
     const feature = new ol.Feature({ geometry: new ol.geom.Polygon(coords) });
     feature.setId(i);
