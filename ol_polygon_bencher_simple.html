@@ -97,6 +97,13 @@ setTimeout(() => map.updateSize(), 0);
       margin-left: 8px;
     }
 
+    #scoreBox .scoreSecondary {
+      font-size: 16px;
+      font-weight: 700;
+      margin-left: 12px;
+      opacity: 0.75;
+    }
+
     #output {
       background: #fff;
       border-top: 1px solid #ccc;
@@ -147,6 +154,13 @@ setTimeout(() => map.updateSize(), 0);
         font-size: 20px;
       }
 
+      #scoreBox .scoreSecondary {
+        display: block;
+        font-size: 12px;
+        margin-left: 0;
+        margin-top: 2px;
+      }
+
       #output {
         max-height: 18vh;
         font-size: 11px;
@@ -193,22 +207,23 @@ setTimeout(() => map.updateSize(), 0);
     </label>
 
     <label>
+      Polygon complexity
+      <select id="vertices">
+        <option value="100">Small (100 vertices)</option>
+        <option value="1000" selected>Medium (1,000 vertices)</option>
+        <option value="10000">Large (10,000 vertices)</option>
+      </select>
+    </label>
+
+
+    <label>
       Viewport mode
       <select id="viewportMode">
         <option value="overview">Overview / unrestricted</option>
         <option value="editing">Editing / zoom-restricted</option>
       </select>
     </label>
-
-    <label>
-      Background
-      <select id="backgroundMode" onchange="applyBackgroundMode()">
-        <option value="none">none / vector only</option>
-        <option value="osm">OSM tiles</option>
-      </select>
-    </label>
-
-    <label>
+<label>
       Update intensity
       <select id="updateIntensity">
         <option value="none">None (0 ops/s)</option>
@@ -219,7 +234,7 @@ setTimeout(() => map.updateSize(), 0);
     </label>
   </div>
 
-  <div id="scoreBox">Frame p95: <span id="scoreValue" class="score"></span></div>
+  <div id="scoreBox">Frame p95: <span id="scoreValue" class="score"></span> <span id="scoreMaxValue" class="scoreSecondary"></span></div>
   <div id="map"></div>
   <pre id="output">Ready. Interaction-only benchmark: p95 frame gap, max frame gap, and update CPU.</pre>
 
@@ -233,7 +248,7 @@ setTimeout(() => map.updateSize(), 0);
 const BENCHMARK = {
   seed: 12345,
   complexity: "complex",
-  vertices: 10000,
+  vertices: 1000,
   combinedSteps: 3,
 
   pauseMs: 250,
@@ -334,6 +349,7 @@ const map = new ol.Map({
 const output = document.getElementById("output");
 const scoreBox = document.getElementById("scoreBox");
 const scoreValue = document.getElementById("scoreValue");
+const scoreMaxValue = document.getElementById("scoreMaxValue");
 let lastResults = null;
 
 /* ============================================================
@@ -434,8 +450,7 @@ function getSelectedUpdatePreset() {
 }
 
 function applyBackgroundMode() {
-  const mode = document.getElementById("backgroundMode").value;
-  osmLayer.setVisible(mode === "osm");
+  osmLayer.setVisible(false);
 }
 
 /* ============================================================
@@ -448,82 +463,9 @@ function randomCenter(rng) {
   return ol.proj.fromLonLat([lon, lat]);
 }
 
-function makeRectangle(cx, cy, sizeX, sizeY) {
-  return [[
-    [cx - sizeX, cy - sizeY],
-    [cx + sizeX, cy - sizeY],
-    [cx + sizeX, cy + sizeY],
-    [cx - sizeX, cy + sizeY],
-    [cx - sizeX, cy - sizeY]
-  ]];
-}
-
-function makeIrregular(cx, cy, radius, vertices, rng) {
-  const ring = [];
-  for (let i = 0; i < vertices; i++) {
-    const a = (Math.PI * 2 * i) / vertices;
-    const localR = radius * (0.55 + rng() * 0.65);
-    ring.push([cx + Math.cos(a) * localR, cy + Math.sin(a) * localR]);
-  }
-  ring.push(ring[0].slice());
-  return [ring];
-}
 
 
-function makeWavyRectangle_OLD(cx, cy, width, height, vertices, rng) {
-  const ring = [];
-  const perSide = Math.floor(vertices / 4);
-  const amp = Math.min(width, height) * 0.03;
 
-  function jitter(t, phase1, phase2) {
-    return amp * (
-      0.65 * Math.sin(t * Math.PI * 2 * 3 + phase1) +
-      0.35 * Math.sin(t * Math.PI * 2 * 11 + phase2)
-    );
-  }
-
-  const p1 = rng() * Math.PI * 2;
-  const p2 = rng() * Math.PI * 2;
-
-  // bottom
-  for (let i = 0; i < perSide; i++) {
-    const t = i / perSide;
-    ring.push([
-      cx - width / 2 + t * width,
-      cy - height / 2 + jitter(t, p1, p2)
-    ]);
-  }
-
-  // right
-  for (let i = 0; i < perSide; i++) {
-    const t = i / perSide;
-    ring.push([
-      cx + width / 2 + jitter(t, p2, p1),
-      cy - height / 2 + t * height
-    ]);
-  }
-
-  // top
-  for (let i = 0; i < perSide; i++) {
-    const t = i / perSide;
-    ring.push([
-      cx + width / 2 - t * width,
-      cy + height / 2 + jitter(t, p1 + 1.7, p2 + 2.3)
-    ]);
-  }
-
-  // left
-  for (let i = 0; i < perSide; i++) {
-    const t = i / perSide;
-    ring.push([
-      cx - width / 2 + jitter(t, p2 + 1.1, p1 + 0.9),
-      cy + height / 2 - t * height
-    ]);
-  }
-
-  ring.push(ring[0].slice());
-  return [ring];
-}
 
 function jitter(t, phase1, phase2, amp) {
   return amp * (
@@ -536,9 +478,17 @@ function jitter(t, phase1, phase2, amp) {
 
 function makeWavyRectangle(cx, cy, width, height, vertices, rng) {
   const ring = [];
-  const perSide = Math.floor(vertices / 4);
-  const amp = Math.min(width, height) * 0.04;
+  const total = Math.max(4, Math.floor(vertices));
+  const basePerSide = Math.floor(total / 4);
+  const remainder = total % 4;
+  const sideCounts = [
+    basePerSide + (remainder > 0 ? 1 : 0),
+    basePerSide + (remainder > 1 ? 1 : 0),
+    basePerSide + (remainder > 2 ? 1 : 0),
+    basePerSide
+  ];
 
+  const amp = Math.min(width, height) * 0.04;
   const p1 = rng() * Math.PI * 2;
   const p2 = rng() * Math.PI * 2;
 
@@ -546,40 +496,24 @@ function makeWavyRectangle(cx, cy, width, height, vertices, rng) {
     return jitter(t, p1 + a, p2 + b, amp);
   }
 
-  // bottom
-  for (let i = 0; i < perSide; i++) {
-    const t = i / perSide;
-    ring.push([
-      cx - width / 2 + t * width,
-      cy - height / 2 + j(t)
-    ]);
+  for (let i = 0; i < sideCounts[0]; i++) {
+    const t = i / sideCounts[0];
+    ring.push([cx - width / 2 + t * width, cy - height / 2 + j(t)]);
   }
 
-  // right
-  for (let i = 0; i < perSide; i++) {
-    const t = i / perSide;
-    ring.push([
-      cx + width / 2 + j(t, 1.3, 0.7),
-      cy - height / 2 + t * height
-    ]);
+  for (let i = 0; i < sideCounts[1]; i++) {
+    const t = i / sideCounts[1];
+    ring.push([cx + width / 2 + j(t, 1.3, 0.7), cy - height / 2 + t * height]);
   }
 
-  // top
-  for (let i = 0; i < perSide; i++) {
-    const t = i / perSide;
-    ring.push([
-      cx + width / 2 - t * width,
-      cy + height / 2 + j(t, 2.1, 1.4)
-    ]);
+  for (let i = 0; i < sideCounts[2]; i++) {
+    const t = i / sideCounts[2];
+    ring.push([cx + width / 2 - t * width, cy + height / 2 + j(t, 2.1, 1.4)]);
   }
 
-  // left
-  for (let i = 0; i < perSide; i++) {
-    const t = i / perSide;
-    ring.push([
-      cx - width / 2 + j(t, 3.0, 2.2),
-      cy + height / 2 - t * height
-    ]);
+  for (let i = 0; i < sideCounts[3]; i++) {
+    const t = i / sideCounts[3];
+    ring.push([cx - width / 2 + j(t, 3.0, 2.2), cy + height / 2 - t * height]);
   }
 
   ring.push(ring[0].slice());
@@ -588,23 +522,19 @@ function makeWavyRectangle(cx, cy, width, height, vertices, rng) {
 
 
 
-function generateFeatures(count, complexity, seed) {
+function generateFeatures(count, complexity, seed, vertices) {
   const rng = mulberry32(seed);
   const features = new Array(count);
-  //const vertices = 5000;
+  const vtx = Math.max(4, Number(vertices) || BENCHMARK.vertices);
 
   for (let i = 0; i < count; i++) {
     const [cx, cy] = randomCenter(rng);
-    //const base = 1200 + rng() * 5000;
     const densityScale = Math.sqrt(5000 / count);
     const base = (1200 + rng() * 5000) * densityScale;
-    //const coords = makeIrregular(cx, cy, base, vertices, rng);
 
-
-    const vertices = BENCHMARK.vertices; // e.g. 10000
     const width = base * (1.0 + rng() * 0.8);
     const height = base * (0.6 + rng() * 0.7);
-    const coords = makeWavyRectangle(cx, cy, width, height, vertices, rng);
+    const coords = makeWavyRectangle(cx, cy, width, height, vtx, rng);
 
     const feature = new ol.Feature({ geometry: new ol.geom.Polygon(coords) });
     feature.setId(i);
@@ -705,7 +635,7 @@ async function loadAndRenderOnce(params) {
   source.clear(true);
 
   const t0 = performance.now();
-  const features = generateFeatures(params.count, params.complexity, params.seed);
+  const features = generateFeatures(params.count, params.complexity, params.seed, params.vertices);
   const t1 = performance.now();
 
   source.addFeatures(features);
@@ -826,9 +756,9 @@ function readParams() {
   return {
     count: Number(document.getElementById("count").value),
     complexity: "complex",
-    vertices: 80,
+    vertices: Number(document.getElementById("vertices").value),
     viewportMode: document.getElementById("viewportMode").value,
-    backgroundMode: document.getElementById("backgroundMode").value,
+    backgroundMode: "none",
     updateIntensity: getSelectedUpdatePreset().key,
     updatesPerTick: getSelectedUpdatePreset().updatesPerTick,
     updatesPerSecond: getSelectedUpdatePreset().updatesPerSecond,
@@ -863,7 +793,7 @@ async function runAll() {
   log("Running interaction benchmark...");
 
   for (let i = 1; i <= params.runs; i++) {
-    log(`Run ${i}/${params.runs}: preparing fixed 80-vertex polygon layer...`);
+    log(`Run ${i}/${params.runs}: preparing polygon layer...`);
     await loadAndRenderOnce(params);
 
     log(`Run ${i}/${params.runs}: navigation with live geometry updates...`);
@@ -912,11 +842,15 @@ function displaySummary(result) {
   if (scoreBox && scoreValue) {
     scoreBox.style.display = "block";
     scoreValue.textContent = `${fmtNumber(result.mainMetric.valueMs)} ms`;
+    if (scoreMaxValue) {
+      scoreMaxValue.textContent = `max ${fmtNumber(result.summary.frameMaxMs.median)} ms`;
+    }
   }
 
   output.textContent =
     `Done. Frame p95: ${fmtNumber(result.mainMetric.valueMs)} ms\n` +
     `Frame max: ${fmtNumber(result.summary.frameMaxMs.median)} ms\n` +
+    `Vertices/polygon: ${result.params.vertices}\n` +
     `Update intensity: ${result.params.updateIntensity} (${fmtNumber(result.params.updatesPerSecond, 0)} ops/s)\n` +
     `Update CPU median total: ${fmtNumber(result.summary.totalUpdateCpuMs.median)} ms`;
 }
@@ -936,6 +870,7 @@ function resetAll() {
   if (scoreBox && scoreValue) {
     scoreBox.style.display = "none";
     scoreValue.textContent = "";
+    if (scoreMaxValue) scoreMaxValue.textContent = "";
   }
   if (window.matchMedia("(max-width: 650px)").matches) {
     document.getElementById("controls").classList.add("collapsed");
@@ -962,7 +897,7 @@ function makeAnalysisRow(result) {
   return {
     polygonCount: p.count,
     zoomRestricted: p.viewportMode === "editing" ? "yes" : "no",
-    background: p.backgroundMode === "osm" ? "yes" : "no",
+    verticesPerPolygon: p.vertices,
     runs: p.runs,
     updateIntensity: p.updateIntensity,
     updatesPerTick: p.updatesPerTick,
