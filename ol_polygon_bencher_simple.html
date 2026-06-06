@@ -469,7 +469,7 @@ function makeIrregular(cx, cy, radius, vertices, rng) {
 }
 
 
-function makeWavyRectangle(cx, cy, width, height, vertices, rng) {
+function makeWavyRectangle_OLD(cx, cy, width, height, vertices, rng) {
   const ring = [];
   const perSide = Math.floor(vertices / 4);
   const amp = Math.min(width, height) * 0.03;
@@ -523,6 +523,69 @@ function makeWavyRectangle(cx, cy, width, height, vertices, rng) {
   ring.push(ring[0].slice());
   return [ring];
 }
+
+function jitter(t, phase1, phase2, amp) {
+  return amp * (
+    0.45 * Math.sin(t * Math.PI * 2 * 3 + phase1) +
+    0.30 * Math.sin(t * Math.PI * 2 * 11 + phase2) +
+    0.18 * Math.sin(t * Math.PI * 2 * 37 + phase1 * 0.7) +
+    0.07 * Math.sin(t * Math.PI * 2 * 91 + phase2 * 1.3)
+  );
+}
+
+function makeWavyRectangle(cx, cy, width, height, vertices, rng) {
+  const ring = [];
+  const perSide = Math.floor(vertices / 4);
+  const amp = Math.min(width, height) * 0.04;
+
+  const p1 = rng() * Math.PI * 2;
+  const p2 = rng() * Math.PI * 2;
+
+  function j(t, a = 0, b = 0) {
+    return jitter(t, p1 + a, p2 + b, amp);
+  }
+
+  // bottom
+  for (let i = 0; i < perSide; i++) {
+    const t = i / perSide;
+    ring.push([
+      cx - width / 2 + t * width,
+      cy - height / 2 + j(t)
+    ]);
+  }
+
+  // right
+  for (let i = 0; i < perSide; i++) {
+    const t = i / perSide;
+    ring.push([
+      cx + width / 2 + j(t, 1.3, 0.7),
+      cy - height / 2 + t * height
+    ]);
+  }
+
+  // top
+  for (let i = 0; i < perSide; i++) {
+    const t = i / perSide;
+    ring.push([
+      cx + width / 2 - t * width,
+      cy + height / 2 + j(t, 2.1, 1.4)
+    ]);
+  }
+
+  // left
+  for (let i = 0; i < perSide; i++) {
+    const t = i / perSide;
+    ring.push([
+      cx - width / 2 + j(t, 3.0, 2.2),
+      cy + height / 2 - t * height
+    ]);
+  }
+
+  ring.push(ring[0].slice());
+  return [ring];
+}
+
+
 
 function generateFeatures(count, complexity, seed) {
   const rng = mulberry32(seed);
