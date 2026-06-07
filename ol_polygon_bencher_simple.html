@@ -192,6 +192,8 @@ setTimeout(() => map.updateSize(), 0);
     <label>
       Polygon count
       <select id="count">
+        <option value="1">1</option>
+        <option value="10">10</option>
         <option value="100">100</option>
         <option value="1000">1K</option>
         <option value="2000">2K</option>
@@ -201,8 +203,8 @@ setTimeout(() => map.updateSize(), 0);
         <option value="15000">15K</option>
         <option value="20000">20K</option>
         <option value="40000">40K</option>
-        <option value="60000">60K</option>
-        <option value="80000">80K</option>
+        <option value="70000">70K</option>
+        <option value="100000">100K</option>
       </select>
     </label>
 
@@ -212,7 +214,9 @@ setTimeout(() => map.updateSize(), 0);
         <option value="5000">Small (5K vertices)</option>
         <option value="50000" selected>Medium (50K vertices)</option>
         <option value="150000" selected>Large (150K vertices)</option>
-        <option value="300000">Huge (300K vertices)</option>
+        <option value="300000">Very large (300K vertices)</option>
+        <option value="700000">Extra large (700K vertices)</option>
+        <option value="1000000">Huge (1M vertices)</option>
       </select>
     </label>
 
@@ -249,7 +253,7 @@ const BENCHMARK = {
   seed: 12345,
   complexity: "complex",
   vertices: 1000,
-  combinedSteps: 3,
+  combinedSteps: 10,
 
   pauseMs: 250,
   animationMs: 950,
@@ -678,6 +682,7 @@ async function combinedBenchmark(params) {
   const totalAnimationMs = BENCHMARK.animationMs * 3;
 
   for (let i = 0; i < BENCHMARK.combinedSteps; i++) {
+    log(`Navigation/update step ${i + 1}/${BENCHMARK.combinedSteps}...`);
     const d = dirs[i % dirs.length];
     const target = [center[0] + d[0] * cfg.panStep, center[1] + d[1] * cfg.panStep];
 
@@ -796,13 +801,13 @@ async function runAll() {
   log("Preparing polygon layer...");
   await loadAndRenderOnce(params);
 
-  for (let i = 1; i <= params.runs; i++) {
-    log(`Run ${i}/${params.runs}: navigation with live geometry updates...`);
+  //for (let i = 1; i <= params.runs; i++) {
+  //  log(`Run ${i}/${params.runs}: navigation with live geometry updates...`);
     const combined = await combinedBenchmark(params);
     combinedRuns.push(combined);
 
-    await sleep(300);
-  }
+  //  await sleep(300);
+  //}
 
   const frameP95Stats = stats(combinedRuns.map(r => r.frameP95Ms.median));
 
