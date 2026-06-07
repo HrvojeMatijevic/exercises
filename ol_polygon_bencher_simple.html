@@ -212,7 +212,7 @@ setTimeout(() => map.updateSize(), 0);
         <option value="5000">Small (5K vertices)</option>
         <option value="50000" selected>Medium (50K vertices)</option>
         <option value="150000" selected>Large (150K vertices)</option>
-        <option value="500000">Huge (500K vertices)</option>
+        <option value="300000">Huge (300K vertices)</option>
       </select>
     </label>
 
@@ -567,7 +567,9 @@ function replaceOneVertex(feature, rng) {
     ring[ring.length - 1] = ring[0].slice();
   }
 
+  // Version with setCoordinates tends to be faster in Chrome, but not in firefox.
   feature.setGeometry(new ol.geom.Polygon([ring]));
+  //feature.getGeometry().setCoordinates([ring]);
 }
 
 function applyUpdateBatch(features, rng, updateCount) {
