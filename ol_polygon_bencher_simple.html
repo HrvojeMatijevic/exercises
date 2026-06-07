@@ -234,8 +234,9 @@ setTimeout(() => map.updateSize(), 0);
       Update intensity
       <select id="updateIntensity">
         <option value="none">None (0 ops/s)</option>
-        <option value="intensive" selected>Intensive (20 ops/s)</option>
-        <option value="extreme">Extreme (100 ops/s)</option>
+	<option value="realistic" selected>Light (1-15 ops/s)</option>
+	<option value="intensive">Intensive (3-25 ops/s)</option>
+	<option value="extreme">Extreme (5-35 ops/s)</option>
       </select>
     </label>
   </div>
@@ -268,10 +269,11 @@ const BENCHMARK = {
   // intensive = 20 geometry updates/s
   // extreme   = 100 geometry updates/s
   updateIntervalMs: 100,
-  updatePresets: {
-    none: 0,
-    intensive: 2,
-    extreme: 10
+  updateProfiles: {
+    none: { min: 0, max: 0 },
+    realistic: { min: 1, max: 20 },
+    intensive: { min: 1, max: 50 },
+    extreme: { min: 20, max: 100 }
   },
 
   // visual/edit displacement for single-vertex changes, in map units (EPSG:3857 meters)
@@ -445,17 +447,34 @@ function formatLoad(count) {
 
 function getSelectedUpdatePreset() {
   const el = document.getElementById("updateIntensity");
-  const key = el ? el.value : "intensive";
-  const updatesPerTick = BENCHMARK.updatePresets[key] ?? BENCHMARK.updatePresets.intensive;
+  const key = el ? el.value : "realistic";
+  const profile = BENCHMARK.updateProfiles[key] ?? BENCHMARK.updateProfiles.realistic;
+
   return {
     key,
-    updatesPerTick,
-    updatesPerSecond: updatesPerTick * 1000 / BENCHMARK.updateIntervalMs
+    minOpsPerSecond: profile.min,
+    maxOpsPerSecond: profile.max,
+    meanOpsPerSecond: (profile.min + profile.max) / 2
   };
 }
 
 function applyBackgroundMode() {
   osmLayer.setVisible(false);
+}
+
+function sampleOpsThisTick(rng, minOpsPerSecond, maxOpsPerSecond) {
+  if (maxOpsPerSecond <= 0) return 0;
+
+  const opsPerSecond =
+    minOpsPerSecond + rng() * (maxOpsPerSecond - minOpsPerSecond);
+
+  const expectedOpsPerTick =
+    opsPerSecond * BENCHMARK.updateIntervalMs / 1000;
+
+  const whole = Math.floor(expectedOpsPerTick);
+  const frac = expectedOpsPerTick - whole;
+
+  return whole + (rng() < frac ? 1 : 0);
 }
 
 /* ============================================================
@@ -672,7 +691,6 @@ async function combinedBenchmark(params) {
   const center = view.getCenter();
   const rng = mulberry32(params.seed + 2025);
   const updatePreset = getSelectedUpdatePreset();
-  const updateCount = Math.min(features.length, updatePreset.updatesPerTick);
 
   const dirs = [
     [1, 0], [-1, 0], [0, 1], [0, -1],
@@ -697,18 +715,31 @@ async function combinedBenchmark(params) {
       const zoomDelta = (i % 2 === 0) ? cfg.zoomDelta : -cfg.zoomDelta;
       const targetZoom = cfg.zoom + zoomDelta;
 
-      if (updateCount > 0) {
-        updateTimer = setInterval(() => {
-          const t0 = performance.now();
 
-          applyUpdateBatch(features, rng, updateCount);
-          totalGeometryUpdates += updateCount;
+if (updatePreset.maxOpsPerSecond > 0) {
+  updateTimer = setInterval(() => {
+    const t0 = performance.now();
 
-          const t1 = performance.now();
-          updateCpuTimesMs.push(t1 - t0);
-          updateTickCount += 1;
-        }, BENCHMARK.updateIntervalMs);
-      }
+    const opsThisTick = sampleOpsThisTick(
+      rng,
+      updatePreset.minOpsPerSecond,
+      updatePreset.maxOpsPerSecond
+    );
+
+    const updateCount = Math.min(features.length, opsThisTick);
+
+    if (updateCount > 0) {
+      applyUpdateBatch(features, rng, updateCount);
+      totalGeometryUpdates += updateCount;
+    }
+
+    const t1 = performance.now();
+    updateCpuTimesMs.push(t1 - t0);
+    updateTickCount += 1;
+  }, BENCHMARK.updateIntervalMs);
+}
+
+
 
       view.animate(
         { zoom: targetZoom, duration: BENCHMARK.animationMs },
@@ -719,10 +750,10 @@ async function combinedBenchmark(params) {
 
     if (updateTimer !== null) clearInterval(updateTimer);
 
-    result.updateCountPerTick = updateCount;
     result.updateIntensity = updatePreset.key;
-    result.updatesPerTickConfigured = updatePreset.updatesPerTick;
-    result.updatesPerSecondConfigured = updatePreset.updatesPerSecond;
+    result.minOpsPerSecondConfigured = updatePreset.minOpsPerSecond;
+    result.maxOpsPerSecondConfigured = updatePreset.maxOpsPerSecond;
+    result.meanOpsPerSecondConfigured = updatePreset.meanOpsPerSecond;
     result.updateIntervalMs = BENCHMARK.updateIntervalMs;
     result.totalAnimationMs = totalAnimationMs;
     result.updateTickCount = updateTickCount;
@@ -768,8 +799,9 @@ function readParams() {
     viewportMode: document.getElementById("viewportMode").value,
     backgroundMode: "none",
     updateIntensity: getSelectedUpdatePreset().key,
-    updatesPerTick: getSelectedUpdatePreset().updatesPerTick,
-    updatesPerSecond: getSelectedUpdatePreset().updatesPerSecond,
+    minOpsPerSecond: getSelectedUpdatePreset().minOpsPerSecond,
+    maxOpsPerSecond: getSelectedUpdatePreset().maxOpsPerSecond,
+    meanOpsPerSecond: getSelectedUpdatePreset().meanOpsPerSecond,
     runs: BENCHMARK.runs,
     seed: 12345,
     updateMode: "single_vertex_geometry_replacement_no_restyle",
@@ -859,7 +891,7 @@ function displaySummary(result) {
     `Done. Frame p95: ${fmtNumber(result.mainMetric.valueMs)} ms\n` +
     `Frame max: ${fmtNumber(result.summary.frameMaxMs.median)} ms\n` +
     `Vertices/polygon: ${result.params.vertices}\n` +
-    `Update intensity: ${result.params.updateIntensity} (${fmtNumber(result.params.updatesPerSecond, 0)} ops/s)\n` +
+    `Update intensity: ${result.params.updateIntensity} (${fmtNumber(result.params.minOpsPerSecond, 0)}-${fmtNumber(result.params.maxOpsPerSecond, 0)} ops/s)\n` +
     `Update CPU median total: ${fmtNumber(result.summary.totalUpdateCpuMs.median)} ms`;
 }
 
@@ -908,9 +940,10 @@ function makeAnalysisRow(result) {
     verticesPerPolygon: p.vertices,
     runs: p.runs,
     updateIntensity: p.updateIntensity,
-    updatesPerTick: p.updatesPerTick,
+    minOpsPerSecond: p.minOpsPerSecond,
+    maxOpsPerSecond: p.maxOpsPerSecond,
+    meanOpsPerSecond: p.meanOpsPerSecond,
     updateIntervalMs: p.fixedBenchmarkConstants.updateIntervalMs,
-    updatesPerSecond: p.updatesPerSecond,
     frameP95MedianMs: s.frameP95Ms.median,
     frameMaxMedianMs: s.frameMaxMs.median,
     meanFpsMedian: s.meanFps.median,
