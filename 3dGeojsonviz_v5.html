@@ -105,8 +105,14 @@ const viewer = new Cesium.Viewer("cesiumContainer", {
 */
 
 
+    "url": "https://geoportal.dgu.hr/services/inspire/orthophoto_lidar_2022_2023/wms",
+    "params": {
+      
+
+
+
 const dopProvider = new Cesium.WebMapServiceImageryProvider({
-  url: "https://geoportal.dgu.hr/services/inspire/orthophoto_2021_2022/ows?",
+  url: "https://geoportal.dgu.hr/services/inspire/orthophoto_lidar_2022_2023/wms",
   layers: "OI.OrthoimageCoverage",
   parameters: {
     service: "WMS",
