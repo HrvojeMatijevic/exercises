@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>GeoJSON 3D Triangle Viewer (EPSG:3765)</title>
+
+  <!-- Cesium -->
+  <link
+    href="https://cdn.jsdelivr.net/npm/cesium@latest/Build/Cesium/Widgets/widgets.css"
+    rel="stylesheet"
+  />
+  <script src="https://cdn.jsdelivr.net/npm/cesium@latest/Build/Cesium/Cesium.js"></script>
+
+  <!-- proj4 -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.0/proj4.js"></script>
+
+  <script src="https://cdn.jsdelivr.net/npm/earcut/dist/earcut.min.js"></script>
+
+
+  <style>
+    html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  font-family: sans-serif;
+}
+
+/* Left panel */
+#sidebar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 400px;
+  height: 100%;
+  padding: 10px;
+  box-sizing: border-box;
+  background: #f4f4f4;
+  overflow-y: auto;
+}
+
+/* Text input */
+#geojsonInput {
+  width: 100%;
+  height: 300px;
+  resize: vertical;
+  font-family: monospace;
+  font-size: 12px;
+  box-sizing: border-box;
+}
+
+/* Cesium fills the rest */
+#cesiumContainer {
+  position: absolute;
+  left: 400px;
+  right: 0;
+  top: 0;
+  bottom: 0;
+}
+  </style>
+</head>
+<body>
+
+<div id="container">
+  <div id="left">
+    <b>Paste GeoJSON (EPSG:3765, XYZ)</b>
+    <textarea id="geojsonInput" placeholder="Paste your GeoJSON feature or FeatureCollection here..."></textarea>
+    <button onclick="renderGeoJSON()">Render</button>
+    <button onclick="clearScene()">Clear</button>
+    <div id="status"></div>
+  </div>
+
+  <div id="cesiumContainer"></div>
+</div>
+
+<script>
+  
+
+/*
+window.CESIUM_BASE_URL =
+    "https://cdn.jsdelivr.net/npm/cesium@latest/Build/Cesium/";
+  Cesium.Ion.defaultAccessToken = undefined;
+
+  const viewer = new Cesium.Viewer("cesiumContainer", {
+    imageryProvider: new Cesium.OpenStreetMapImageryProvider({
+      url: "https://a.tile.openstreetmap.org/"
+    }),
+    baseLayerPicker: false,
+    geocoder: false,
+    homeButton: false,
+    sceneModePicker: false,
+    navigationHelpButton: false,
+    animation: false,
+    timeline: false
+  });
+*/
+
+
+const osmProvider = new Cesium.UrlTemplateImageryProvider({
+  url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+  credit: "© OpenStreetMap contributors"
+});
+
+const viewer = new Cesium.Viewer("cesiumContainer", {
+  baseLayer: Cesium.ImageryLayer.fromProviderAsync(osmProvider),
+  baseLayerPicker: false,
+  geocoder: false,
+  homeButton: false,
+  sceneModePicker: false,
+  navigationHelpButton: false,
+  animation: false,
+  timeline: false
+});
+
+
+
+  viewer.scene.globe.depthTestAgainstTerrain = false;
+
+  // -----------------------------
+  // Projection definition
+  // -----------------------------
+  proj4.defs(
+    "EPSG:3765",
+    "+proj=tmerc +lat_0=0 +lon_0=16.5 +k=0.9999 +x_0=500000 +y_0=0 +ellps=GRS80 +units=m +no_defs"
+  );
+
+  // -----------------------------
+  // State
+  // -----------------------------
+  let currentPrimitive = null;
+
+  // -----------------------------
+  // Helpers
+  // -----------------------------
+  function toCartesian(x, y, z) {
+    const [lon, lat] = proj4("EPSG:3765", "EPSG:4326", [x, y]);
+    return Cesium.Cartesian3.fromDegrees(lon, lat, z || 0);
+  }
+
+  function collectTrianglesFromGeometry(geom) {
+    const triangles = [];
+
+    if (geom.type === "Polygon") {
+      geom.coordinates.forEach(ring => triangles.push(ring));
+    }
+
+    if (geom.type === "MultiPolygon") {
+      geom.coordinates.forEach(poly => {
+        poly.forEach(ring => triangles.push(ring));
+      });
+    }
+
+    return triangles;
+  }
+
+
+
+function sameCoord3(a, b) {
+  return (
+    a &&
+    b &&
+    a.length >= 2 &&
+    b.length >= 2 &&
+    a[0] === b[0] &&
+    a[1] === b[1] &&
+    (a[2] || 0) === (b[2] || 0)
+  );
+}
+
+function removeClosingCoord(ring) {
+  if (ring.length > 1 && sameCoord3(ring[0], ring[ring.length - 1])) {
+    return ring.slice(0, -1);
+  }
+  return ring.slice();
+}
+
+function subtract3(a, b) {
+  return [a[0] - b[0], a[1] - b[1], (a[2] || 0) - (b[2] || 0)];
+}
+
+function dot3(a, b) {
+  return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+}
+
+function cross3(a, b) {
+  return [
+    a[1] * b[2] - a[2] * b[1],
+    a[2] * b[0] - a[0] * b[2],
+    a[0] * b[1] - a[1] * b[0],
+  ];
+}
+
+function length3(v) {
+  return Math.sqrt(dot3(v, v));
+}
+
+function normalize3(v) {
+  const len = length3(v);
+  if (len === 0) return null;
+  return [v[0] / len, v[1] / len, v[2] / len];
+}
+
+
+
+function findFaceBasis(coords3d) {
+  if (coords3d.length < 3) return null;
+
+  /*
+    Pick the most stable origin/u direction:
+    use the longest distance between any two vertices.
+  */
+  let origin = coords3d[0];
+  let uRaw = null;
+  let maxDist2 = 0;
+
+  for (let i = 0; i < coords3d.length; i++) {
+    for (let j = i + 1; j < coords3d.length; j++) {
+      const d = subtract3(coords3d[j], coords3d[i]);
+      const dist2 = dot3(d, d);
+
+      if (dist2 > maxDist2) {
+        maxDist2 = dist2;
+        origin = coords3d[i];
+        uRaw = d;
+      }
+    }
+  }
+
+  if (!uRaw || maxDist2 < 1e-12) return null;
+
+  /*
+    Pick the strongest normal:
+    test all vertex triples and keep the largest cross product.
+    This avoids accidentally using three almost-collinear bottom-edge points.
+  */
+  let normal = null;
+  let maxNormalLen = 0;
+
+  for (let i = 0; i < coords3d.length; i++) {
+    for (let j = i + 1; j < coords3d.length; j++) {
+      for (let k = j + 1; k < coords3d.length; k++) {
+        const a = subtract3(coords3d[j], coords3d[i]);
+        const b = subtract3(coords3d[k], coords3d[i]);
+        const n = cross3(a, b);
+        const nLen = length3(n);
+
+        if (nLen > maxNormalLen) {
+          maxNormalLen = nLen;
+          normal = n;
+        }
+      }
+    }
+  }
+
+  if (!normal || maxNormalLen < 1e-9) {
+    return null;
+  }
+
+  normal = normalize3(normal);
+
+  /*
+    Make u lie exactly in the detected plane.
+    This makes the local 2D basis more stable.
+  */
+  const uDotN = dot3(uRaw, normal);
+  const uInPlane = [
+    uRaw[0] - uDotN * normal[0],
+    uRaw[1] - uDotN * normal[1],
+    uRaw[2] - uDotN * normal[2]
+  ];
+
+  const u = normalize3(uInPlane);
+  if (!u) return null;
+
+  const v = normalize3(cross3(normal, u));
+  if (!v) return null;
+
+  return { origin, u, v, normal };
+}
+
+function projectFaceTo2D(coords3d, basis) {
+  const out = [];
+
+  coords3d.forEach(p => {
+    const d = subtract3(p, basis.origin);
+    out.push(dot3(d, basis.u));
+    out.push(dot3(d, basis.v));
+  });
+
+  return out;
+}
+
+function signedArea2D(flat2d) {
+  let area = 0;
+
+  const n = flat2d.length / 2;
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
+
+    const xi = flat2d[2 * i];
+    const yi = flat2d[2 * i + 1];
+    const xj = flat2d[2 * j];
+    const yj = flat2d[2 * j + 1];
+
+    area += xi * yj - xj * yi;
+  }
+
+  return area / 2;
+}
+
+
+function addTriangulatedRing(ring, positions, indices) {
+  const coords3d = removeClosingCoord(ring);
+
+  if (coords3d.length < 3) {
+    console.warn("Skipping face with fewer than 3 vertices:", ring);
+    return 0;
+  }
+
+  const basis = findFaceBasis(coords3d);
+  if (!basis) {
+    //console.warn("Skipping degenerate face, no valid 3D basis:", coords3d);
+    return 0;
+  }
+
+  const flat2d = projectFaceTo2D(coords3d, basis);
+
+  const triIndices = earcut.default(flat2d, null, 2);
+
+  if (!triIndices.length) {
+    console.warn("Earcut produced no triangles for face:", {
+      coords3d,
+      flat2d,
+      area: signedArea2D(flat2d)
+    });
+    return 0;
+  }
+
+  const baseIndex = positions.length / 3;
+
+  coords3d.forEach(coord => {
+    const [x, y, z] = coord;
+    const c = toCartesian(x, y, z || 0);
+    positions.push(c.x, c.y, c.z);
+  });
+
+  triIndices.forEach(i => {
+    indices.push(baseIndex + i);
+  });
+
+  return triIndices.length / 3;
+}
+
+
+
+  // -----------------------------
+  // Main render function
+  // -----------------------------
+  function renderGeoJSON() {
+    clearScene();
+
+    const input = document.getElementById("geojsonInput").value;
+    let data;
+
+
+    try {
+      data = JSON.parse(input);
+    } catch (e)  {
+      setStatus("Invalid JSON");
+      return;
+    }
+
+    const features =
+      data.type === "FeatureCollection"
+        ? data.features
+        : data.type === "Feature"
+        ? [data]
+        : [];
+
+    if (!features.length) {
+      setStatus("No Feature(s) found");
+      return;
+    }
+
+    const positions = [];
+    const indices = [];
+    let indexOffset = 0;
+
+
+
+
+let triangleCount = 0;
+features.forEach(feature => {
+  const geom = feature.geometry;
+  if (!geom) return;
+  if (geom.type === "Polygon") {
+    geom.coordinates.forEach(ring => {
+      triangleCount += addTriangulatedRing(ring, positions, indices);
+    });
+  }
+  if (geom.type === "MultiPolygon") {
+    geom.coordinates.forEach(poly => {
+      poly.forEach(ring => {
+        triangleCount += addTriangulatedRing(ring, positions, indices);
+      });
+    });
+  }
+});
+
+
+    if (!positions.length) {
+      setStatus("No triangles extracted");
+      return;
+    }
+
+    const geometry = new Cesium.Geometry({
+      attributes: {
+        position: new Cesium.GeometryAttribute({
+          componentDatatype: Cesium.ComponentDatatype.DOUBLE,
+          componentsPerAttribute: 3,
+          values: new Float64Array(positions),
+        }),
+      },
+      indices: new Uint32Array(indices),
+      primitiveType: Cesium.PrimitiveType.TRIANGLES,
+      boundingSphere: Cesium.BoundingSphere.fromVertices(positions),
+    });
+
+   Cesium.GeometryPipeline.computeNormal(geometry);
+
+    const instance = new Cesium.GeometryInstance({
+  	geometry,
+  	attributes: {
+    	color: Cesium.ColorGeometryInstanceAttribute.fromColor(
+      	Cesium.Color.LIGHTGRAY
+    	),
+  	},
+    });
+
+    currentPrimitive = new Cesium.Primitive({
+      geometryInstances: instance,
+      appearance: new Cesium.PerInstanceColorAppearance({flat: false,translucent: false,faceForward: true}),
+    });
+
+
+    viewer.scene.primitives.add(currentPrimitive);
+    
+    const bs = geometry.boundingSphere;
+
+    viewer.scene.camera.flyToBoundingSphere(
+      bs,
+      {
+        duration: 1.5,
+        offset: new Cesium.HeadingPitchRange(
+          0,
+          Cesium.Math.toRadians(-45),
+          bs.radius * 3.0
+        )
+      }
+    );
+
+    viewer.scene.requestRender();
+
+
+    setStatus(`Rendered ${triangleCount} triangles`);
+  }
+
+  function clearScene() {
+    if (currentPrimitive) {
+      viewer.scene.primitives.remove(currentPrimitive);
+      currentPrimitive = null;
+    }
+    setStatus("Cleared");
+  }
+
+  function setStatus(msg) {
+    document.getElementById("status").innerText = msg;
+  }
+</script>
+
+</body>
+</html>
