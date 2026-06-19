@@ -67,6 +67,16 @@
     <textarea id="geojsonInput" placeholder="Paste your GeoJSON feature or FeatureCollection here..."></textarea>
     <button onclick="renderGeoJSON()">Render</button>
     <button onclick="clearScene()">Clear</button>
+
+
+<br />
+<label>
+  Height offset:
+  <input id="heightOffsetInput" type="number" value="-100" step="1" style="width:80px;" />
+  m
+</label>
+
+
     <div id="status"></div>
   </div>
 
@@ -133,10 +143,16 @@ const viewer = new Cesium.Viewer("cesiumContainer", {
   // -----------------------------
   // Helpers
   // -----------------------------
-  function toCartesian(x, y, z) {
-    const [lon, lat] = proj4("EPSG:3765", "EPSG:4326", [x, y]);
-    return Cesium.Cartesian3.fromDegrees(lon, lat, (z || 0) + heightOffset);
-  }
+function getHeightOffset() {
+  const el = document.getElementById("heightOffsetInput");
+  const value = Number(el?.value ?? 0);
+  return Number.isFinite(value) ? value : 0;
+}
+
+function toCartesian(x, y, z) {
+  const [lon, lat] = proj4("EPSG:3765", "EPSG:4326", [x, y]);
+  return Cesium.Cartesian3.fromDegrees(lon, lat, (z || 0) + getHeightOffset());
+}
 
   function collectTrianglesFromGeometry(geom) {
     const triangles = [];
