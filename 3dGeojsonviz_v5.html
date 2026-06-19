@@ -128,13 +128,14 @@ const viewer = new Cesium.Viewer("cesiumContainer", {
   // State
   // -----------------------------
   let currentPrimitive = null;
+  let heightOffset = -113;
 
   // -----------------------------
   // Helpers
   // -----------------------------
   function toCartesian(x, y, z) {
     const [lon, lat] = proj4("EPSG:3765", "EPSG:4326", [x, y]);
-    return Cesium.Cartesian3.fromDegrees(lon, lat, z || 0);
+    return Cesium.Cartesian3.fromDegrees(lon, lat, (z || 0) + heightOffset);
   }
 
   function collectTrianglesFromGeometry(geom) {
