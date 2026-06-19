@@ -67,16 +67,6 @@
     <textarea id="geojsonInput" placeholder="Paste your GeoJSON feature or FeatureCollection here..."></textarea>
     <button onclick="renderGeoJSON()">Render</button>
     <button onclick="clearScene()">Clear</button>
-
-
-<br />
-<label>
-  Height offset:
-  <input id="heightOffsetInput" type="number" value="-100" step="1" style="width:80px;" />
-  m
-</label>
-
-
     <div id="status"></div>
   </div>
 
@@ -86,7 +76,7 @@
 <script>
   
 
-/*
+
 const osmProvider = new Cesium.UrlTemplateImageryProvider({
   url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
   credit: "© OpenStreetMap contributors"
@@ -102,9 +92,9 @@ const viewer = new Cesium.Viewer("cesiumContainer", {
   animation: false,
   timeline: false
 });
-*/
 
 
+/*
 const dopProvider = new Cesium.WebMapServiceImageryProvider({
   url: "https://geoportal.dgu.hr/services/inspire/orthophoto_lidar_2022_2023/wms",
   layers: "OI.OrthoimageCoverage",
@@ -129,7 +119,7 @@ const viewer = new Cesium.Viewer("cesiumContainer", {
   animation: false,
   timeline: false
 });
-
+*/
 
   viewer.scene.globe.depthTestAgainstTerrain = false;
 
