@@ -148,7 +148,7 @@ function getHeightOffset() {
 
 function toCartesian(x, y, z) {
   const [lon, lat] = proj4("EPSG:3765", "EPSG:4326", [x, y]);
-  return Cesium.Cartesian3.fromDegrees(lon, lat, (z || 0) + getHeightOffset());
+  //return Cesium.Cartesian3.fromDegrees(lon, lat, (z || 0) + getHeightOffset());
   return Cesium.Cartesian3.fromDegrees(lon, lat, (z || 0) -114);
 }
 
