@@ -1,0 +1,1176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Simplified OL + Cesium Prism / Mask Editor</title>
+
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@v10.1.0/ol.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/cesium@latest/Build/Cesium/Widgets/widgets.css" />
+
+  <style>
+    html, body, #app {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    #app {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 350px;
+      height: 100vh;
+      background: #222;
+    }
+    .viewerWrap {
+      position: relative;
+      min-width: 0;
+      height: 100vh;
+      border-right: 1px solid #444;
+      background: #fff;
+    }
+    .viewerTitle {
+      position: absolute;
+      left: 12px;
+      top: 12px;
+      z-index: 50;
+      background: rgba(255,255,255,0.92);
+      border-radius: 7px;
+      padding: 6px 9px;
+      font-size: 13px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.25);
+      pointer-events: none;
+    }
+    #map2d, #map3d {
+      width: 100%;
+      height: 100%;
+    }
+    #panel {
+      box-sizing: border-box;
+      padding: 14px;
+      overflow: auto;
+      background: #f7f7f7;
+      color: #222;
+    }
+    #panel h2 { margin: 0 0 12px; font-size: 19px; }
+    #panel h3 { margin: 18px 0 8px; font-size: 15px; }
+    .row { margin: 8px 0; line-height: 1.35; font-size: 14px; }
+    .label { font-weight: 650; }
+    input[type="number"] { width: 86px; padding: 4px; }
+    button {
+      cursor: pointer;
+      padding: 7px 10px;
+      border: 1px solid #aaa;
+      border-radius: 5px;
+      background: #fff;
+      font-size: 13px;
+      margin: 2px 2px 2px 0;
+    }
+    button:hover { background: #eee; }
+    #status {
+      margin-top: 14px;
+      padding: 9px;
+      border-radius: 6px;
+      background: #fff;
+      border: 1px solid #ddd;
+      font-size: 13px;
+      min-height: 44px;
+    }
+    .hint { font-size: 12px; color: #555; line-height: 1.35; }
+    .danger { color: #a22; }
+  </style>
+</head>
+<body>
+<div id="app">
+  <div class="viewerWrap">
+    <div class="viewerTitle">2D OpenLayers</div>
+    <div id="map2d"></div>
+  </div>
+  <div class="viewerWrap">
+    <div class="viewerTitle">3D Cesium / OLCesium</div>
+    <div id="map3d"></div>
+  </div>
+
+  <aside id="panel">
+    <h2>Prism + Mask Editor</h2>
+
+    <h3>Footprints / prisms</h3>
+    <div class="row"><span class="label">Selected:</span> <span id="selectedText">none</span></div>
+    <div class="row"><span class="label">Prisms:</span> <span id="countText">0</span></div>
+    <div class="row">
+      <button id="drawFootprintBtn">Draw footprint</button>
+      <button id="editFootprintBtn">Edit footprints</button>
+      <button id="stopEditBtn">Stop edit</button>
+    </div>
+    <div class="row">
+      <button id="deleteSelectedBtn">Delete selected</button>
+    </div>
+
+    <h3>Mask</h3>
+    <div class="row">
+      <button id="drawMaskBtn">Draw mask polygon</button>
+      <button id="clipPointCloudBtn">Apply mask</button>
+      <button id="clearPointCloudClipBtn">Clear mask</button>
+    </div>
+    <div class="row">
+      <span class="label">Point class:</span>
+      <select id="pointClassSelect" multiple size="6" title="Filters the 3D Tiles point cloud by the CLASSIFICATION property, if that property exists in the tileset. Use Ctrl/Cmd-click to choose multiple classes. Selection applies immediately.">
+        <option value="2">ground (2)</option>
+        <option value="3">low vegetation (3)</option>
+        <option value="4">medium vegetation (4)</option>
+        <option value="5">high vegetation (5)</option>
+        <option value="6">building (6)</option>
+        <option value="9">water (9)</option>
+      </select>
+      <button id="allPointClassesBtn">All classes</button>
+    </div>
+    <div class="row"><span class="label">Mask:</span> <span id="maskText">none</span></div>
+<div id="status">Draw one or more footprints in 2D. Each footprint becomes an editable 3D prism.</div>
+  </aside>
+</div>
+
+<script>window.CESIUM_BASE_URL = 'https://cdn.jsdelivr.net/npm/cesium@latest/Build/Cesium/';</script>
+<script src="https://cdn.jsdelivr.net/npm/ol@v10.1.0/dist/ol.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/cesium@latest/Build/Cesium/Cesium.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/ol-cesium@2.17.0/dist/olcesium.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.5.0/proj4.js"></script>
+
+<script>
+  Cesium.Ion.defaultAccessToken = undefined;
+
+  proj4.defs(
+    'EPSG:3765',
+    '+proj=tmerc +lat_0=0 +lon_0=16.5 +k=0.9999 +x_0=500000 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs'
+  );
+  ol.proj.proj4.register(proj4);
+  const htrs96 = ol.proj.get('EPSG:3765');
+
+  const initialCenter = [476200, 5046300];
+  const initialZoom = 15;
+
+  // Default model vertical reference. Newly drawn footprints/prisms use this Cesium height.
+  // Each prism also stores its own baseZ, so selected prisms can be moved vertically after creation.
+  let DEFAULT_FOOTPRINT_BASE_Z = 15;
+
+  // Fixed mask extrusion range. Kept deliberately broad so the user only draws a 2D mask polygon.
+  const MASK_BASE_Z = -1000;
+  const MASK_HEIGHT = 20000;
+
+  const DEFAULT_POINT_CLOUD_POINT_SIZE = 4;
+  // CustomShader cannot reliably change point size for 3D Tiles point clouds.
+  // Keep the shader for clipping, but use Cesium3DTileStyle pointSize to enlarge the surviving points.
+  const CLIPPED_POINT_CLOUD_POINT_SIZE = 4;
+  // The tileset was produced with a batch/metadata property named CLASSIFICATION in the other app.
+  // Cesium3DTileStyle uses this exact property name in expressions such as ${CLASSIFICATION} === 6.
+  const POINT_CLASS_PROPERTY_NAME = 'CLASSIFICATION';
+
+  // Prism vertical editing. Both drag handles are displayed above the selected prism
+  // so the base handle remains easy to pick even when the base is hidden by terrain/points.
+  const MIN_PRISM_HEIGHT = 0.2;
+  const TOP_HANDLE_OFFSET = 10;
+  const BASE_HANDLE_OFFSET = 4;
+
+  const MAX_MASK_VERTS = 64;
+
+  function makeOrthoLayer(visible) {
+    return new ol.layer.Tile({
+      visible,
+      source: new ol.source.TileWMS({
+        url: 'https://geoportal.dgu.hr/services/inspire/orthophoto_lidar_2022_2023/wms',
+        params: { LAYERS: 'OI.OrthoimageCoverage', TILED: true },
+        attributions: '<a href="https://geoportal.dgu.hr/#/menu/podaci-i-servisi">Geoportal DGU</a>'
+      })
+    });
+  }
+
+  const footprintSource = new ol.source.Vector();
+  const maskSource = new ol.source.Vector();
+
+  let selectedPrismId = null;
+  let prismCounter = 0;
+  const prisms = new Map();
+  let tileset = null;
+  let savedPointCloudStyle = null;
+  let prismFilterActive = false;
+  let pointCloudMaskActive = false;
+  let selectedPointClasses = [];
+
+  function selectedPrism() {
+    return selectedPrismId ? prisms.get(selectedPrismId) || null : null;
+  }
+
+  function setStatus(message, isError = false) {
+    const el = document.getElementById('status');
+    el.textContent = message;
+    el.classList.toggle('danger', !!isError);
+  }
+
+  function footprintStyle(feature) {
+    const id = feature.get('prismId');
+    const prism = id ? prisms.get(id) : null;
+    if (prism && prism.visible === false) return null;
+    const selected = id && id === selectedPrismId;
+    const hidden = prism && prism.visible === false;
+    return new ol.style.Style({
+      fill: new ol.style.Fill({ color: hidden ? 'rgba(150,150,150,0.08)' : (selected ? 'rgba(0,170,255,0.28)' : 'rgba(0,170,255,0.16)') }),
+      stroke: new ol.style.Stroke({ color: selected ? '#ffff00' : (hidden ? '#999999' : '#00aaff'), width: selected ? 4 : 3 })
+    });
+  }
+
+  const maskStyle = new ol.style.Style({
+    fill: new ol.style.Fill({ color: 'rgba(255, 200, 0, 0.16)' }),
+    stroke: new ol.style.Stroke({ color: '#ffcc00', width: 3, lineDash: [10, 6] })
+  });
+
+  const footprintLayer2d = new ol.layer.Vector({ source: footprintSource, style: footprintStyle });
+  const maskLayer2d = new ol.layer.Vector({ source: maskSource, style: maskStyle });
+
+  const view2d = new ol.View({ projection: htrs96, center: initialCenter, zoom: initialZoom });
+  const view3d = new ol.View({ projection: htrs96, center: initialCenter, zoom: initialZoom });
+
+  const map2d = new ol.Map({
+    target: 'map2d',
+    layers: [makeOrthoLayer(true), footprintLayer2d, maskLayer2d],
+    view: view2d
+  });
+
+  const map3d = new ol.Map({
+    target: 'map3d',
+    layers: [makeOrthoLayer(true)],
+    view: view3d
+  });
+
+  const ol3d = new olcs.OLCesium({ map: map3d });
+  const scene = ol3d.getCesiumScene();
+  const camera = scene.camera;
+  const controller = scene.screenSpaceCameraController;
+  ol3d.setEnabled(true);
+
+  scene.requestRenderMode = false;
+  scene.backgroundColor = Cesium.Color.WHITE;
+  if (scene.globe) {
+    scene.globe.baseColor = Cesium.Color.WHITE;
+    scene.globe.showGroundAtmosphere = false;
+  }
+  if (scene.skyBox) scene.skyBox.show = false;
+  if (scene.skyAtmosphere) scene.skyAtmosphere.show = false;
+
+  let syncing = false;
+  function syncViews(fromMap, toMap) {
+    if (syncing) return;
+    syncing = true;
+    const fromView = fromMap.getView();
+    const toView = toMap.getView();
+    toView.setCenter(fromView.getCenter());
+    toView.setZoom(fromView.getZoom());
+    toView.setRotation(fromView.getRotation());
+    syncing = false;
+  }
+  ['change:center', 'change:resolution', 'change:rotation'].forEach(evt => {
+    view2d.on(evt, () => syncViews(map2d, map3d));
+    view3d.on(evt, () => syncViews(map3d, map2d));
+  });
+
+  async function loadTileset() {
+    try {
+      tileset = await Cesium.Cesium3DTileset.fromUrl('https://mak435cbi.pages.dev/tileset.json');
+      applyPointCloudStyle();
+      scene.primitives.add(tileset);
+      await tileset.readyPromise;
+      scene.camera.flyToBoundingSphere(tileset.boundingSphere, { duration: 0.8 });
+      setStatus('Tileset loaded. Draw one or more footprints in 2D.');
+    } catch (err) {
+      console.error(err);
+      setStatus('Failed to load tileset. See console.', true);
+    }
+  }
+  loadTileset();
+
+  function closeRingIfNeeded(ring) {
+    const out = ring.map(p => [Number(p[0]), Number(p[1])]);
+    if (out.length && (Math.abs(out[0][0] - out[out.length - 1][0]) > 1e-9 || Math.abs(out[0][1] - out[out.length - 1][1]) > 1e-9)) {
+      out.push([out[0][0], out[0][1]]);
+    }
+    return out;
+  }
+
+  function signedArea(ring) {
+    let sum = 0;
+    for (let i = 0; i < ring.length - 1; i++) {
+      const a = ring[i], b = ring[i + 1];
+      sum += a[0] * b[1] - b[0] * a[1];
+    }
+    return sum / 2;
+  }
+
+  function distinctVertexCount(ring) {
+    const pts = closeRingIfNeeded(ring).slice(0, -1);
+    const keys = new Set(pts.map(p => `${p[0].toFixed(3)},${p[1].toFixed(3)}`));
+    return keys.size;
+  }
+
+  function centroidOfRing(ring) {
+    ring = closeRingIfNeeded(ring);
+    let area2 = 0, cx = 0, cy = 0;
+    for (let i = 0; i < ring.length - 1; i++) {
+      const x0 = ring[i][0], y0 = ring[i][1];
+      const x1 = ring[i + 1][0], y1 = ring[i + 1][1];
+      const cross = x0 * y1 - x1 * y0;
+      area2 += cross;
+      cx += (x0 + x1) * cross;
+      cy += (y0 + y1) * cross;
+    }
+    if (Math.abs(area2) < 1e-9) return ring[0] || [0, 0];
+    return [cx / (3 * area2), cy / (3 * area2)];
+  }
+
+  function isValidRing(ring) {
+    ring = closeRingIfNeeded(ring);
+    return distinctVertexCount(ring) >= 3 && Math.abs(signedArea(ring)) > 0.01;
+  }
+
+  function isValidFootprintFeature(feature) {
+    return !!feature && feature.getGeometry()?.getType() === 'Polygon' && isValidRing(feature.getGeometry().getCoordinates()[0]);
+  }
+
+  function normalizeRingFromFeature(feature) {
+    let ring = closeRingIfNeeded(feature.getGeometry().getCoordinates()[0].map(p => [p[0], p[1]]));
+    if (signedArea(ring) < 0) ring = ring.slice().reverse();
+    return ring;
+  }
+
+  function epsg3765ToLonLat(coord3765) {
+    return proj4('EPSG:3765', 'EPSG:4326', coord3765);
+  }
+
+  function coords3765ToCartesian(coords, z = 0) {
+    const ll = epsg3765ToLonLat(coords);
+    return Cesium.Cartesian3.fromDegrees(ll[0], ll[1], z);
+  }
+
+  function cartesianFromLonLat(lonLat, z = 0) {
+    return Cesium.Cartesian3.fromDegrees(lonLat[0], lonLat[1], z);
+  }
+
+  function ringToLonLat(ring) {
+    return ring.map(p => epsg3765ToLonLat(p));
+  }
+
+  function midpoint2(a, b) {
+    return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+  }
+
+  function edgeOutwardNormal(ring, edgeIndex) {
+    ring = closeRingIfNeeded(ring);
+    const area = signedArea(ring);
+    const a = ring[edgeIndex], b = ring[edgeIndex + 1];
+    const dx = b[0] - a[0], dy = b[1] - a[1];
+    const len = Math.hypot(dx, dy) || 1;
+    // For CCW ring, interior is left of edge, so outward is right. Reverse for CW.
+    return area >= 0 ? [dy / len, -dx / len] : [-dy / len, dx / len];
+  }
+
+  function pointInRing(point, ring) {
+    ring = closeRingIfNeeded(ring);
+    const x = point[0], y = point[1];
+    let inside = false;
+    for (let i = 0, j = ring.length - 2; i < ring.length - 1; j = i++) {
+      const xi = ring[i][0], yi = ring[i][1];
+      const xj = ring[j][0], yj = ring[j][1];
+      const intersect = ((yi > y) !== (yj > y)) &&
+        (x < (xj - xi) * (y - yi) / ((yj - yi) || 1e-12) + xi);
+      if (intersect) inside = !inside;
+    }
+    return inside;
+  }
+
+  function dsEntities() {
+    return ol3d.getDataSourceDisplay().defaultDataSource.entities;
+  }
+
+  function makePrismFromFeature(feature) {
+    const id = `prism-${++prismCounter}`;
+    feature.set('prismId', id);
+    const height = 20;
+    const prism = {
+      id,
+      feature2d: feature,
+      ring3765: normalizeRingFromFeature(feature),
+      ringLonLat: null,
+      height,
+      baseZ: DEFAULT_FOOTPRINT_BASE_Z,
+      visible: true,
+      entities: { body: null, outline: null, guide: null, heightHandle: null, baseHandle: null, sideFaces: [] }
+    };
+    prism.ringLonLat = ringToLonLat(prism.ring3765);
+    prisms.set(id, prism);
+    buildPrismEntities(prism);
+    selectPrism(id);
+    updatePanel();
+    return prism;
+  }
+
+  function buildPrismEntities(prism) {
+    removePrismEntities(prism);
+    const entities = dsEntities();
+    const id = prism.id;
+
+    prism.entities.body = entities.add({
+      id: `${id}-body`,
+      name: `Prism ${id}`,
+      properties: { kind: 'prismBody', prismId: id },
+      polygon: {
+        hierarchy: new Cesium.CallbackProperty(() => new Cesium.PolygonHierarchy(prism.ringLonLat.map(ll => cartesianFromLonLat(ll, prism.baseZ))), false),
+        height: new Cesium.CallbackProperty(() => prism.baseZ, false),
+        extrudedHeight: new Cesium.CallbackProperty(() => prism.baseZ + prism.height, false),
+        material: new Cesium.ColorMaterialProperty(new Cesium.CallbackProperty(() => {
+          if (prism.visible === false) return Cesium.Color.GRAY.withAlpha(0.08);
+          return prism.id === selectedPrismId ? Cesium.Color.CYAN.withAlpha(0.45) : Cesium.Color.CYAN.withAlpha(0.24);
+        }, false)),
+        outline: false
+      },
+      show: prism.visible !== false
+    });
+
+    prism.entities.outline = entities.add({
+      id: `${id}-outline`,
+      name: `Prism ${id} top outline`,
+      properties: { kind: 'prismOutline', prismId: id },
+      polyline: {
+        positions: new Cesium.CallbackProperty(() => prism.ringLonLat.map(ll => cartesianFromLonLat(ll, prism.baseZ + prism.height)), false),
+        width: new Cesium.CallbackProperty(() => prism.id === selectedPrismId ? 4 : 2, false),
+        material: new Cesium.ColorMaterialProperty(new Cesium.CallbackProperty(() => prism.id === selectedPrismId ? Cesium.Color.YELLOW : Cesium.Color.BLACK, false)),
+        clampToGround: false
+      },
+      show: prism.visible !== false
+    });
+
+    prism.entities.guide = entities.add({
+      id: `${id}-height-guide`,
+      name: `Prism ${id} height guide`,
+      properties: { kind: 'heightGuide', prismId: id },
+      polyline: {
+        positions: new Cesium.CallbackProperty(() => {
+          const c = centroidOfRing(prism.ring3765);
+          const ll = epsg3765ToLonLat(c);
+          return [cartesianFromLonLat(ll, prism.baseZ), cartesianFromLonLat(ll, prism.baseZ + prism.height + TOP_HANDLE_OFFSET)];
+        }, false),
+        width: 2,
+        material: Cesium.Color.YELLOW.withAlpha(0.75),
+        clampToGround: false
+      },
+      show: prism.visible !== false && prism.id === selectedPrismId
+    });
+
+    prism.entities.heightHandle = entities.add({
+      id: `${id}-height-handle`,
+      name: `Prism ${id} top handle`,
+      properties: { kind: 'heightHandle', prismId: id },
+      position: new Cesium.CallbackProperty(() => {
+        const c = centroidOfRing(prism.ring3765);
+        const ll = epsg3765ToLonLat(c);
+        return cartesianFromLonLat(ll, prism.baseZ + prism.height + TOP_HANDLE_OFFSET);
+      }, false),
+      point: {
+        pixelSize: new Cesium.CallbackProperty(() => prism.id === selectedPrismId ? 16 : 11, false),
+        color: new Cesium.CallbackProperty(() => prism.id === selectedPrismId ? Cesium.Color.YELLOW : Cesium.Color.LIGHTGRAY.withAlpha(0.8), false),
+        outlineColor: Cesium.Color.BLACK,
+        outlineWidth: 2,
+        disableDepthTestDistance: Number.POSITIVE_INFINITY
+      },
+      show: prism.visible !== false && prism.id === selectedPrismId
+    });
+
+    prism.entities.baseHandle = entities.add({
+      id: `${id}-base-handle`,
+      name: `Prism ${id} base handle`,
+      properties: { kind: 'baseHandle', prismId: id },
+      position: new Cesium.CallbackProperty(() => {
+        const c = centroidOfRing(prism.ring3765);
+        const ll = epsg3765ToLonLat(c);
+        // Visual position only: the handle is above the top so it is easy to grab.
+        // Dragging it still edits prism.baseZ.
+        return cartesianFromLonLat(ll, prism.baseZ + prism.height + BASE_HANDLE_OFFSET);
+      }, false),
+      point: {
+        pixelSize: new Cesium.CallbackProperty(() => prism.id === selectedPrismId ? 15 : 10, false),
+        color: new Cesium.CallbackProperty(() => prism.id === selectedPrismId ? Cesium.Color.ORANGE : Cesium.Color.LIGHTGRAY.withAlpha(0.8), false),
+        outlineColor: Cesium.Color.BLACK,
+        outlineWidth: 2,
+        disableDepthTestDistance: Number.POSITIVE_INFINITY
+      },
+      show: prism.visible !== false && prism.id === selectedPrismId
+    });
+
+    prism.entities.sideFaces = [];
+    for (let i = 0; i < prism.ringLonLat.length - 1; i++) {
+      const edgeIndex = i;
+      const face = entities.add({
+        id: `${id}-side-${edgeIndex}`,
+        name: `Prism ${id} side ${edgeIndex + 1}`,
+        properties: { kind: 'sideFace', prismId: id, edgeIndex },
+        wall: {
+          positions: new Cesium.CallbackProperty(() => {
+            if (edgeIndex >= prism.ringLonLat.length - 1) return [];
+            return [cartesianFromLonLat(prism.ringLonLat[edgeIndex], prism.baseZ), cartesianFromLonLat(prism.ringLonLat[edgeIndex + 1], prism.baseZ)];
+          }, false),
+          minimumHeights: new Cesium.CallbackProperty(() => [prism.baseZ, prism.baseZ], false),
+          maximumHeights: new Cesium.CallbackProperty(() => [prism.baseZ + prism.height, prism.baseZ + prism.height], false),
+          material: new Cesium.ColorMaterialProperty(new Cesium.CallbackProperty(() => {
+            if (prism.id === selectedPrismId && edgeIndex === selectedSideFaceIndex) return Cesium.Color.ORANGE.withAlpha(0.55);
+            return Cesium.Color.WHITE.withAlpha(0.08);
+          }, false)),
+          outline: false
+        },
+        show: prism.visible !== false
+      });
+      prism.entities.sideFaces.push(face);
+    }
+  }
+
+  function removePrismEntities(prism) {
+    if (!prism || !prism.entities) return;
+    const entities = dsEntities();
+    const all = [prism.entities.body, prism.entities.outline, prism.entities.guide, prism.entities.heightHandle, prism.entities.baseHandle, ...(prism.entities.sideFaces || [])];
+    for (const e of all) if (e && entities.contains(e)) entities.remove(e);
+    prism.entities = { body: null, outline: null, guide: null, heightHandle: null, baseHandle: null, sideFaces: [] };
+  }
+
+  function deletePrism(id) {
+    const prism = prisms.get(id);
+    if (!prism) return;
+    removePrismEntities(prism);
+    if (prism.feature2d) footprintSource.removeFeature(prism.feature2d);
+    prisms.delete(id);
+    if (selectedPrismId === id) selectedPrismId = null;
+    updatePanel();
+    scene.requestRender();
+  }
+
+  function selectPrism(id) {
+    selectedPrismId = prisms.has(id) ? id : null;
+    selectedSideFaceIndex = null;
+    for (const prism of prisms.values()) {
+      if (prism.entities?.guide) prism.entities.guide.show = prism.visible !== false && prism.id === selectedPrismId;
+      if (prism.entities?.heightHandle) prism.entities.heightHandle.show = prism.visible !== false && prism.id === selectedPrismId;
+      if (prism.entities?.baseHandle) prism.entities.baseHandle.show = prism.visible !== false && prism.id === selectedPrismId;
+    }
+    const p = selectedPrism();
+    if (p) {
+    } else {
+    }
+    footprintSource.changed();
+    updatePanel();
+    scene.requestRender();
+  }
+
+  function setPrismHeight(prism, height) {
+    if (!prism) return;
+    prism.height = Math.max(MIN_PRISM_HEIGHT, Number(height) || MIN_PRISM_HEIGHT);
+    if (prismFilterActive) applyPrismFilterByMask({ silent: true });
+    updatePanel();
+    scene.requestRender();
+  }
+
+  function setPrismBaseZ(prism, baseZ, { keepTop = true } = {}) {
+    const z = Number(baseZ);
+    if (!Number.isFinite(z)) return;
+    if (!prism) {
+      DEFAULT_FOOTPRINT_BASE_Z = z;
+      setStatus(`Default base Z set to ${DEFAULT_FOOTPRINT_BASE_Z.toFixed(1)} m for newly drawn footprints.`);
+      return;
+    }
+
+    const oldTopZ = prism.baseZ + prism.height;
+    prism.baseZ = keepTop ? Math.min(z, oldTopZ - MIN_PRISM_HEIGHT) : z;
+    if (keepTop) prism.height = Math.max(MIN_PRISM_HEIGHT, oldTopZ - prism.baseZ);
+    if (prismFilterActive) applyPrismFilterByMask({ silent: true });
+    updatePanel();
+    scene.requestRender();
+  }
+
+  function updatePrismFromRing(prism, ring, updateOl = true) {
+    if (!prism || !isValidRing(ring)) return false;
+    ring = closeRingIfNeeded(ring);
+    if (signedArea(ring) < 0) ring = ring.slice().reverse();
+    const oldVertexCount = prism.ring3765 ? prism.ring3765.length : 0;
+    const newVertexCount = ring.length;
+    prism.ring3765 = ring;
+    prism.ringLonLat = ringToLonLat(ring);
+    if (updateOl && prism.feature2d) {
+      prism.feature2d.setGeometry(new ol.geom.Polygon([ring]));
+    }
+    // Only rebuild entity sets when the number of edges changed. During side-face dragging,
+    // callback properties update the existing Cesium entities continuously.
+    if (oldVertexCount !== newVertexCount) buildPrismEntities(prism);
+    if (prismFilterActive) applyPrismFilterByMask({ silent: true });
+    footprintSource.changed();
+    scene.requestRender();
+    return true;
+  }
+
+  function setPrismVisible(prism, visible) {
+    if (!prism) return;
+    prism.visible = !!visible;
+    const ents = prism.entities || {};
+    const all = [ents.body, ents.outline, ents.heightHandle, ents.baseHandle, ...(ents.sideFaces || [])];
+    for (const e of all) if (e) e.show = prism.visible;
+    if (ents.heightHandle) ents.heightHandle.show = prism.visible && prism.id === selectedPrismId;
+    if (ents.baseHandle) ents.baseHandle.show = prism.visible && prism.id === selectedPrismId;
+    if (ents.guide) ents.guide.show = prism.visible && prism.id === selectedPrismId;
+  }
+
+  function clearPrismFilter({ silent = false } = {}) {
+    prismFilterActive = false;
+    for (const prism of prisms.values()) setPrismVisible(prism, true);
+    footprintSource.changed();
+    updatePanel();
+    scene.requestRender();
+    if (!silent) setStatus('Prism filter cleared. All prisms are visible.');
+  }
+
+  const drawInteraction = new ol.interaction.Draw({ source: footprintSource, type: 'Polygon' });
+  drawInteraction.setActive(false);
+  map2d.addInteraction(drawInteraction);
+
+  const modifyInteraction = new ol.interaction.Modify({
+    source: footprintSource,
+    deleteCondition: event => ol.events.condition.altKeyOnly(event) && ol.events.condition.singleClick(event)
+  });
+  modifyInteraction.setActive(false);
+  map2d.addInteraction(modifyInteraction);
+
+  const snapInteraction = new ol.interaction.Snap({ source: footprintSource });
+  map2d.addInteraction(snapInteraction);
+
+  const maskDrawInteraction = new ol.interaction.Draw({ source: maskSource, type: 'Polygon' });
+  maskDrawInteraction.setActive(false);
+  map2d.addInteraction(maskDrawInteraction);
+
+  let geometryBeforeModify = new Map();
+
+  drawInteraction.on('drawstart', () => {
+    modifyInteraction.setActive(false);
+    maskDrawInteraction.setActive(false);
+  });
+  drawInteraction.on('drawend', evt => {
+    drawInteraction.setActive(false);
+    window.setTimeout(() => {
+      if (!isValidFootprintFeature(evt.feature)) {
+        footprintSource.removeFeature(evt.feature);
+        setStatus('Invalid footprint ignored.', true);
+        return;
+      }
+      makePrismFromFeature(evt.feature);
+      modifyInteraction.setActive(true);
+      setStatus('Footprint created. Edit in 2D or drag its 3D top/base handles or side faces.');
+    }, 0);
+  });
+
+  modifyInteraction.on('modifystart', evt => {
+    geometryBeforeModify.clear();
+    evt.features.forEach(feature => {
+      const id = feature.get('prismId');
+      if (id) {
+        selectPrism(id);
+        geometryBeforeModify.set(id, feature.getGeometry().clone());
+      }
+    });
+  });
+  modifyInteraction.on('modifyend', evt => {
+    evt.features.forEach(feature => {
+      const id = feature.get('prismId');
+      const prism = id ? prisms.get(id) : null;
+      if (!prism) return;
+      if (!isValidFootprintFeature(feature)) {
+        const oldGeom = geometryBeforeModify.get(id);
+        if (oldGeom) feature.setGeometry(oldGeom);
+        setStatus('Invalid footprint edit rejected.', true);
+        return;
+      }
+      updatePrismFromRing(prism, normalizeRingFromFeature(feature), false);
+      setStatus('2D footprint edit applied to 3D prism.');
+    });
+    geometryBeforeModify.clear();
+  });
+
+  map2d.on('singleclick', evt => {
+    const feature = map2d.forEachFeatureAtPixel(evt.pixel, f => f, { layerFilter: l => l === footprintLayer2d });
+    if (feature?.get('prismId')) {
+      selectPrism(feature.get('prismId'));
+    } else {
+      selectPrism(null);
+      setStatus('Selection cleared.');
+    }
+  });
+
+  document.getElementById('drawFootprintBtn').addEventListener('click', () => {
+    maskDrawInteraction.setActive(false);
+    modifyInteraction.setActive(false);
+    drawInteraction.setActive(true);
+    setStatus('Draw a new footprint polygon in 2D. Double-click to finish.');
+  });
+  document.getElementById('editFootprintBtn').addEventListener('click', () => {
+    drawInteraction.setActive(false);
+    maskDrawInteraction.setActive(false);
+    modifyInteraction.setActive(true);
+    setStatus('2D modify active: drag/move/add vertices, Alt+click vertex to delete.');
+  });
+  document.getElementById('stopEditBtn').addEventListener('click', () => {
+    drawInteraction.setActive(false);
+    modifyInteraction.setActive(false);
+    maskDrawInteraction.setActive(false);
+    setStatus('Editing interactions stopped. 3D picking/dragging remains available.');
+  });
+  document.getElementById('deleteSelectedBtn').addEventListener('click', () => {
+    if (!selectedPrismId) return setStatus('No selected prism to delete.', true);
+    deletePrism(selectedPrismId);
+    setStatus('Selected prism deleted.');
+  });
+
+  function currentMaskFeature() {
+    const features = maskSource.getFeatures();
+    return features.length ? features[features.length - 1] : null;
+  }
+
+  function updateMaskText() {
+    const el = document.getElementById('maskText');
+    const f = currentMaskFeature();
+    if (!f) {
+      el.textContent = 'none';
+      return;
+    }
+    const ring = closeRingIfNeeded(f.getGeometry().getCoordinates()[0]);
+    el.textContent = `${Math.max(0, ring.length - 1)} vertices, fixed Z ${MASK_BASE_Z.toFixed(1)}-${(MASK_BASE_Z + MASK_HEIGHT).toFixed(1)} m`;
+  }
+
+  function rebuildMaskVolume() {
+    // Intentionally no 3D mask visualization in the simplified version.
+    updateMaskText();
+    scene.requestRender();
+  }
+
+  maskDrawInteraction.on('drawstart', () => {
+    drawInteraction.setActive(false);
+    modifyInteraction.setActive(false);
+    maskSource.clear();
+    clearPointCloudMask({ clearPolygon: false, silent: true });
+    clearPrismFilter({ silent: true });
+  });
+  maskDrawInteraction.on('drawend', () => {
+    maskDrawInteraction.setActive(false);
+    window.setTimeout(() => {
+      rebuildMaskVolume();
+      applyPrismFilterByMask({ silent: true });
+      setStatus('Mask polygon drawn. Prism filtering is active; use Apply mask to clip the point cloud too.');
+    }, 0);
+  });
+
+  document.getElementById('drawMaskBtn').addEventListener('click', () => {
+    drawInteraction.setActive(false);
+    modifyInteraction.setActive(false);
+    maskDrawInteraction.setActive(true);
+    setStatus('Draw mask polygon in 2D. Double-click to finish.');
+  });
+  function glslFloat(v) {
+    if (!Number.isFinite(v)) v = 0;
+    return Number(v).toFixed(6);
+  }
+
+  function makeGetPolyVertexFunction(localVertices) {
+    const lines = ['vec2 getPolyVertex(int i) {'];
+    localVertices.forEach((p, idx) => {
+      lines.push(`  ${idx === 0 ? 'if' : 'else if'} (i == ${idx}) return vec2(${glslFloat(p.x)}, ${glslFloat(p.y)});`);
+    });
+    lines.push('  return vec2(0.0, 0.0);');
+    lines.push('}');
+    return lines.join('\n');
+  }
+
+  function buildMaskGeometryFromFeature(feature) {
+    if (!feature || feature.getGeometry()?.getType() !== 'Polygon') {
+      setStatus('Draw a mask polygon first.', true);
+      return null;
+    }
+    let ring = closeRingIfNeeded(feature.getGeometry().getCoordinates()[0].map(p => [p[0], p[1]])).slice(0, -1);
+    if (ring.length < 3) return null;
+    if (ring.length > MAX_MASK_VERTS) {
+      setStatus(`Mask polygon has ${ring.length} vertices; shader limit is ${MAX_MASK_VERTS}.`, true);
+      return null;
+    }
+    let cx = 0, cy = 0;
+    ring.forEach(p => { cx += p[0]; cy += p[1]; });
+    cx /= ring.length; cy /= ring.length;
+
+    const centroidLonLat = epsg3765ToLonLat([cx, cy]);
+    const centerWorld = Cesium.Cartesian3.fromDegrees(centroidLonLat[0], centroidLonLat[1], 0.0);
+    const enuToWorld = Cesium.Transforms.eastNorthUpToFixedFrame(centerWorld);
+    const worldToMask = Cesium.Matrix4.inverse(enuToWorld, new Cesium.Matrix4());
+
+    const localVertices = ring.map(coord3765 => {
+      const ll = epsg3765ToLonLat(coord3765);
+      const world = Cesium.Cartesian3.fromDegrees(ll[0], ll[1], 0.0);
+      const local = Cesium.Matrix4.multiplyByPoint(worldToMask, world, new Cesium.Cartesian3());
+      return { x: local.x, y: local.y };
+    });
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    localVertices.forEach(p => { minX = Math.min(minX, p.x); minY = Math.min(minY, p.y); maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y); });
+    const margin = 1.0;
+    return { worldToMask, localVertices, bbox: { minX: minX - margin, minY: minY - margin, maxX: maxX + margin, maxY: maxY + margin } };
+  }
+
+  function makePointCloudPolygonMaskShader({ feature, useZ, zMin, zMax }) {
+    const mask = buildMaskGeometryFromFeature(feature);
+    if (!mask) return null;
+    const vertices = mask.localVertices;
+    const n = vertices.length;
+    const getPolyVertex = makeGetPolyVertexFunction(vertices);
+    const fragmentShaderText = `
+      ${getPolyVertex}
+      bool pointInPolygon(vec2 p) {
+        bool inside = false;
+        for (int i = 0, j = ${n - 1}; i < ${n}; j = i++) {
+          vec2 vi = getPolyVertex(i);
+          vec2 vj = getPolyVertex(j);
+          bool crosses = ((vi.y > p.y) != (vj.y > p.y));
+          float xAtY = (vj.x - vi.x) * (p.y - vi.y) / ((vj.y - vi.y) + 1e-9) + vi.x;
+          if (crosses && p.x < xAtY) inside = !inside;
+        }
+        return inside;
+      }
+      void fragmentMain(FragmentInput fsInput, inout czm_modelMaterial material) {
+        vec4 p4 = u_worldToMask * vec4(fsInput.attributes.positionWC, 1.0);
+        vec3 p = p4.xyz;
+        bool inBBox = p.x >= ${glslFloat(mask.bbox.minX)} && p.x <= ${glslFloat(mask.bbox.maxX)} && p.y >= ${glslFloat(mask.bbox.minY)} && p.y <= ${glslFloat(mask.bbox.maxY)};
+        bool inZ = true;
+        ${useZ ? `inZ = p.z >= ${glslFloat(zMin)} && p.z <= ${glslFloat(zMax)};` : ''}
+        bool inside = inBBox && inZ && pointInPolygon(p.xy);
+        if (!inside) discard;
+      }
+    `;
+    return new Cesium.CustomShader({
+      uniforms: { u_worldToMask: { type: Cesium.UniformType.MAT4, value: mask.worldToMask } },
+      fragmentShaderText
+    });
+  }
+
+  function clearExistingTilesetShaderOnly() {
+    if (!tileset) return;
+    const oldShader = tileset.customShader;
+    tileset.customShader = undefined;
+    if (oldShader && typeof oldShader.destroy === 'function' && !oldShader.isDestroyed?.()) {
+      try { oldShader.destroy(); } catch (err) { console.warn('Shader destroy failed:', err); }
+    }
+  }
+
+  function classFilterExpression() {
+    const classes = Array.isArray(selectedPointClasses) ? selectedPointClasses : [];
+    const validClasses = classes
+      .map(v => parseInt(v, 10))
+      .filter(v => Number.isFinite(v));
+    if (!validClasses.length) return null;
+    return validClasses
+      .map(cls => '${' + POINT_CLASS_PROPERTY_NAME + '} === ' + cls)
+      .join(' || ');
+  }
+
+  function applyPointCloudStyle() {
+    if (!tileset) return;
+    const showExpr = classFilterExpression();
+    const styleOptions = {
+      pointSize: (pointCloudMaskActive || showExpr)
+        ? CLIPPED_POINT_CLOUD_POINT_SIZE
+        : DEFAULT_POINT_CLOUD_POINT_SIZE
+    };
+    if (showExpr) styleOptions.show = showExpr;
+    tileset.style = new Cesium.Cesium3DTileStyle(styleOptions);
+    scene.requestRender();
+  }
+
+  function applyPointClassFilter() {
+    const sel = document.getElementById('pointClassSelect');
+    selectedPointClasses = sel ? Array.from(sel.selectedOptions).map(o => o.value) : [];
+    applyPointCloudStyle();
+    const expr = classFilterExpression();
+    setStatus(expr
+      ? `Point-cloud class filter applied: ${expr}. If all points disappear, the tileset may use a different class property name.`
+      : 'Point-cloud class filter cleared; all classes visible.');
+  }
+
+  function clearPointClassFilter() {
+    selectedPointClasses = [];
+    const sel = document.getElementById('pointClassSelect');
+    if (sel) Array.from(sel.options).forEach(opt => opt.selected = false);
+    applyPointCloudStyle();
+    setStatus('Point-cloud class filter cleared; all classes visible.');
+  }
+
+  function applyPointCloudClip() {
+    if (!tileset) return setStatus('Tileset is not loaded yet.', true);
+    const feature = currentMaskFeature();
+    if (!feature) return setStatus('Draw a mask polygon first.', true);
+    const shader = makePointCloudPolygonMaskShader({ feature, useZ: true, zMin: MASK_BASE_Z, zMax: MASK_BASE_Z + MASK_HEIGHT });
+    if (!shader) return;
+    if (!savedPointCloudStyle) savedPointCloudStyle = tileset.style;
+    clearExistingTilesetShaderOnly();
+    tileset.customShader = shader;
+    pointCloudMaskActive = true;
+    applyPointCloudStyle();
+    applyPrismFilterByMask({ silent: true });
+    scene.requestRender();
+    setStatus('Mask applied: point cloud clipped and prisms outside the mask hidden.');
+  }
+
+  function clearPointCloudMask({ clearPolygon = false, silent = false } = {}) {
+    if (tileset) {
+      clearExistingTilesetShaderOnly();
+      pointCloudMaskActive = false;
+      applyPointCloudStyle();
+    }
+    if (clearPolygon) {
+      maskSource.clear();
+      clearPrismFilter({ silent: true });
+    }
+    updateMaskText();
+    scene.requestRender();
+    if (!silent) setStatus(clearPolygon ? 'Mask cleared; point cloud and prisms restored.' : 'Point-cloud clipping cleared.');
+  }
+
+  document.getElementById('clipPointCloudBtn').addEventListener('click', applyPointCloudClip);
+  document.getElementById('clearPointCloudClipBtn').addEventListener('click', () => clearPointCloudMask({ clearPolygon: true }));
+  document.getElementById('pointClassSelect').addEventListener('change', applyPointClassFilter);
+  document.getElementById('allPointClassesBtn').addEventListener('click', clearPointClassFilter);
+
+  function applyPrismFilterByMask({ silent = false } = {}) {
+    const feature = currentMaskFeature();
+    if (!feature) return setStatus('Draw a mask polygon first.', true);
+    const maskRing = normalizeRingFromFeature(feature);
+    const maskBase = MASK_BASE_Z;
+    const maskTop = MASK_BASE_Z + MASK_HEIGHT;
+    let kept = 0;
+    let hidden = 0;
+    for (const prism of prisms.values()) {
+      const centroid = centroidOfRing(prism.ring3765);
+      const xyInside = pointInRing(centroid, maskRing);
+      const zOverlap = (prism.baseZ + prism.height >= maskBase && prism.baseZ <= maskTop);
+      const keep = xyInside && zOverlap;
+      setPrismVisible(prism, keep);
+      if (keep) kept++; else hidden++;
+    }
+    prismFilterActive = true;
+    footprintSource.changed();
+    updatePanel();
+    scene.requestRender();
+    if (!silent) setStatus(`Prism filter applied: ${kept} kept, ${hidden} hidden.`);
+  }
+
+
+  const handler = new Cesium.ScreenSpaceEventHandler(scene.canvas);
+  let draggingHeight = false;
+  let draggingBase = false;
+  let draggingSideFace = false;
+  let dragStartY = 0;
+  let dragStartHeight = 0;
+  let dragStartBaseZ = 0;
+  let dragStartTopZ = 0;
+  let dragPrismId = null;
+  let selectedSideFaceIndex = null;
+  let sideDragEdgeIndex = null;
+  let sideDragStartMouse = null;
+  let sideDragStartRing = null;
+  let sideDragNormal = null;
+  let sideDragPixelsPerMeter = 1;
+
+  function disableCesiumCamera(disabled) {
+    controller.enableRotate = !disabled;
+    controller.enableTranslate = !disabled;
+    controller.enableTilt = !disabled;
+    controller.enableZoom = !disabled;
+    controller.enableLook = false;
+  }
+
+  function entityKind(entity) {
+    try { return entity?.properties?.kind?.getValue(Cesium.JulianDate.now()) || null; } catch (e) { return null; }
+  }
+  function entityPrismId(entity) {
+    try { return entity?.properties?.prismId?.getValue(Cesium.JulianDate.now()) || null; } catch (e) { return null; }
+  }
+  function entityEdgeIndex(entity) {
+    try { return Number(entity?.properties?.edgeIndex?.getValue(Cesium.JulianDate.now())); } catch (e) { return NaN; }
+  }
+
+  function pickPreferredEntity(position) {
+    const hits = scene.drillPick(position, 16) || [];
+    const ids = hits.map(h => h && h.id).filter(Boolean);
+    return ids.find(e => entityKind(e) === 'heightHandle') ||
+           ids.find(e => entityKind(e) === 'baseHandle') ||
+           ids.find(e => entityKind(e) === 'sideFace') ||
+           ids.find(e => entityKind(e) === 'prismBody') ||
+           ids.find(e => entityKind(e) === 'prismOutline') ||
+           ids.find(e => entityKind(e) === 'heightGuide') || null;
+  }
+
+  function startSideFaceDrag(entity, movement) {
+    const id = entityPrismId(entity);
+    const prism = id ? prisms.get(id) : null;
+    const edgeIndex = entityEdgeIndex(entity);
+    if (!prism || !Number.isFinite(edgeIndex) || edgeIndex >= prism.ring3765.length - 1) return;
+    selectPrism(id);
+    selectedSideFaceIndex = edgeIndex;
+    sideDragEdgeIndex = edgeIndex;
+    sideDragStartMouse = Cesium.Cartesian2.clone(movement.position);
+    sideDragStartRing = prism.ring3765.map(p => [p[0], p[1]]);
+    sideDragNormal = edgeOutwardNormal(sideDragStartRing, edgeIndex);
+
+    const a = sideDragStartRing[edgeIndex];
+    const b = sideDragStartRing[edgeIndex + 1];
+    const mid = midpoint2(a, b);
+    const p0 = coords3765ToCartesian(mid, prism.baseZ + prism.height * 0.5);
+    const p1 = coords3765ToCartesian([mid[0] + sideDragNormal[0] * 10, mid[1] + sideDragNormal[1] * 10], prism.baseZ + prism.height * 0.5);
+    const w0 = Cesium.SceneTransforms.worldToWindowCoordinates(scene, p0);
+    const w1 = Cesium.SceneTransforms.worldToWindowCoordinates(scene, p1);
+    sideDragPixelsPerMeter = (w0 && w1) ? Math.max(Cesium.Cartesian2.distance(w0, w1) / 10, 0.001) : 1;
+
+    draggingSideFace = true;
+    dragPrismId = id;
+    disableCesiumCamera(true);
+    setStatus(`Dragging side face ${edgeIndex + 1} of selected prism.`);
+  }
+
+  handler.setInputAction(movement => {
+    const entity = pickPreferredEntity(movement.position);
+    if (!entity) return;
+    const kind = entityKind(entity);
+    const id = entityPrismId(entity);
+    if (!id || !prisms.has(id)) return;
+
+    if (kind === 'heightHandle') {
+      selectPrism(id);
+      const prism = prisms.get(id);
+      draggingHeight = true;
+      dragPrismId = id;
+      dragStartY = movement.position.y;
+      dragStartHeight = prism.height;
+      disableCesiumCamera(true);
+      setStatus('Dragging selected prism top handle.');
+      return;
+    }
+    if (kind === 'baseHandle') {
+      selectPrism(id);
+      const prism = prisms.get(id);
+      draggingBase = true;
+      dragPrismId = id;
+      dragStartY = movement.position.y;
+      dragStartBaseZ = prism.baseZ;
+      dragStartTopZ = prism.baseZ + prism.height;
+      disableCesiumCamera(true);
+      setStatus('Dragging selected prism base handle. Top elevation stays fixed.');
+      return;
+    }
+    if (kind === 'sideFace') {
+      startSideFaceDrag(entity, movement);
+      return;
+    }
+    selectPrism(id);
+    setStatus('Prism selected. Drag yellow top handle, orange base handle, or side face; edit footprint in 2D.');
+  }, Cesium.ScreenSpaceEventType.LEFT_DOWN);
+
+  handler.setInputAction(movement => {
+    if (draggingHeight) {
+      const prism = dragPrismId ? prisms.get(dragPrismId) : null;
+      if (!prism) return;
+      const dy = dragStartY - movement.endPosition.y;
+      const c = centroidOfRing(prism.ring3765);
+      const handlePos = coords3765ToCartesian(c, prism.baseZ + prism.height + TOP_HANDLE_OFFSET);
+      const distance = Cesium.Cartesian3.distance(camera.positionWC, handlePos);
+      const scale = Cesium.Math.clamp(distance / 5000, 0.05, 1.4);
+      setPrismHeight(prism, dragStartHeight + dy * scale);
+      return;
+    }
+
+    if (draggingBase) {
+      const prism = dragPrismId ? prisms.get(dragPrismId) : null;
+      if (!prism) return;
+      const dy = dragStartY - movement.endPosition.y;
+      const c = centroidOfRing(prism.ring3765);
+      const handlePos = coords3765ToCartesian(c, dragStartTopZ + BASE_HANDLE_OFFSET);
+      const distance = Cesium.Cartesian3.distance(camera.positionWC, handlePos);
+      const scale = Cesium.Math.clamp(distance / 5000, 0.05, 1.4);
+      const newBaseZ = Math.min(dragStartBaseZ + dy * scale, dragStartTopZ - MIN_PRISM_HEIGHT);
+      prism.baseZ = newBaseZ;
+      prism.height = Math.max(MIN_PRISM_HEIGHT, dragStartTopZ - newBaseZ);
+      if (prismFilterActive) applyPrismFilterByMask({ silent: true });
+      updatePanel();
+      scene.requestRender();
+      return;
+    }
+
+    if (draggingSideFace) {
+      const prism = dragPrismId ? prisms.get(dragPrismId) : null;
+      if (!prism || !sideDragStartMouse || !sideDragStartRing || !sideDragNormal) return;
+      const current = movement.endPosition;
+      const dx = current.x - sideDragStartMouse.x;
+      const dy = current.y - sideDragStartMouse.y;
+      const edgeIndex = sideDragEdgeIndex;
+      const a = sideDragStartRing[edgeIndex];
+      const b = sideDragStartRing[edgeIndex + 1];
+      const mid = midpoint2(a, b);
+      const p0 = coords3765ToCartesian(mid, prism.baseZ + prism.height * 0.5);
+      const p1 = coords3765ToCartesian([mid[0] + sideDragNormal[0] * 10, mid[1] + sideDragNormal[1] * 10], prism.baseZ + prism.height * 0.5);
+      const w0 = Cesium.SceneTransforms.worldToWindowCoordinates(scene, p0);
+      const w1 = Cesium.SceneTransforms.worldToWindowCoordinates(scene, p1);
+      let screenDir = null;
+      if (w0 && w1) {
+        screenDir = new Cesium.Cartesian2(w1.x - w0.x, w1.y - w0.y);
+        const mag = Cesium.Cartesian2.magnitude(screenDir);
+        if (mag > 0.01) Cesium.Cartesian2.divideByScalar(screenDir, mag, screenDir);
+      }
+      if (!screenDir) screenDir = new Cesium.Cartesian2(1, 0);
+      const signedPixels = dx * screenDir.x + dy * screenDir.y;
+      const offsetMeters = signedPixels / Math.max(sideDragPixelsPerMeter, 0.001);
+
+      const newRing = sideDragStartRing.map(p => [p[0], p[1]]);
+      newRing[edgeIndex] = [sideDragStartRing[edgeIndex][0] + sideDragNormal[0] * offsetMeters, sideDragStartRing[edgeIndex][1] + sideDragNormal[1] * offsetMeters];
+      newRing[edgeIndex + 1] = [sideDragStartRing[edgeIndex + 1][0] + sideDragNormal[0] * offsetMeters, sideDragStartRing[edgeIndex + 1][1] + sideDragNormal[1] * offsetMeters];
+      if (edgeIndex === 0) newRing[newRing.length - 1] = [...newRing[0]];
+      if (edgeIndex === newRing.length - 2) newRing[0] = [...newRing[newRing.length - 1]];
+      updatePrismFromRing(prism, newRing, true);
+      selectedSideFaceIndex = edgeIndex;
+    }
+  }, Cesium.ScreenSpaceEventType.MOUSE_MOVE);
+
+  function endCesiumDrag() {
+    if (draggingHeight || draggingBase || draggingSideFace) {
+      const wasSide = draggingSideFace;
+      const wasBase = draggingBase;
+      draggingHeight = false;
+      draggingBase = false;
+      draggingSideFace = false;
+      dragPrismId = null;
+      sideDragEdgeIndex = null;
+      sideDragStartMouse = null;
+      sideDragStartRing = null;
+      sideDragNormal = null;
+      disableCesiumCamera(false);
+      setStatus(wasSide ? 'Side face moved; 2D footprint was updated.' : (wasBase ? 'Base elevation changed.' : 'Top elevation changed.'));
+      scene.requestRender();
+    }
+  }
+  handler.setInputAction(endCesiumDrag, Cesium.ScreenSpaceEventType.LEFT_UP);
+  handler.setInputAction(endCesiumDrag, Cesium.ScreenSpaceEventType.LEFT_DOUBLE_CLICK);
+
+  function updatePanel() {
+    const p = selectedPrism();
+    document.getElementById('selectedText').textContent = p
+      ? `${p.id} (base ${Number(p.baseZ || 0).toFixed(1)} m, top ${(Number(p.baseZ || 0) + p.height).toFixed(1)} m, height ${p.height.toFixed(1)} m)`
+      : 'none';
+    document.getElementById('countText').textContent = `${prisms.size}` +
+      (prismFilterActive ? `, ${Array.from(prisms.values()).filter(x => x.visible !== false).length} visible` : '');
+  }
+
+  updatePanel();
+  updateMaskText();
+</script>
+</body>
+</html>
