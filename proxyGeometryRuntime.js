@@ -548,6 +548,8 @@ console.log("--------------------------- proxyGeometryRuntime.js LOADED born-own
     }
 
     function markGeometryDirty(featureOrGeomId) {
+      if (geometryEditActive) return;
+
       const feature = featureFromGeomIdOrFeature(featureOrGeomId);
       const geomId = feature ? getFeatureGeomId(feature) : safeString(featureOrGeomId);
       if (!geomId) return;
@@ -679,6 +681,8 @@ console.log("--------------------------- proxyGeometryRuntime.js LOADED born-own
       });
 
       geometrySource.on("changefeature", evt => {
+        if (geometryEditActive) return;
+
         const f = evt?.feature;
         if (f) markGeometryDirty(f);
       });
@@ -691,28 +695,29 @@ console.log("--------------------------- proxyGeometryRuntime.js LOADED born-own
     return {
       refresh: rebuildAll,
       refreshAll: rebuildAll,
+      setGeometryEditActive(active) {
+        const next = !!active;
+        if (geometryEditActive === next) return;
 
-  setGeometryEditActive(active) {
-    geometryEditActive = !!active;
+        geometryEditActive = next;
 
+        // While edit mode is active, style wrapper shows all geometry and
+        // incremental changefeature reindexing is disabled. When edit mode ends,
+        // rebuild once from the final geometry state.
+        if (!geometryEditActive) {
+          rebuildAll();
+        }
 
+        for (const f of geometrySource.getFeatures()) {
+          f.changed?.();
+        }
+        geometrySource.changed?.();
+        geometryLayer.changed?.();
+      },
 
-  // DEBUG
-  const next = !!active;
-  if (geometryEditActive === next) return;
-  geometryEditActive = next;
-  if (!geometryEditActive) {
-    rebuildAll();
-  }
-
-
-
-    for (const f of geometrySource.getFeatures()) {
-      f.changed?.();
-    }
-    geometrySource.changed?.();
-    geometryLayer.changed?.();
-  },
+      isGeometryEditActive() {
+        return geometryEditActive;
+      },
 
       onProxyStateChanged: rebuildAll,
       onGeometryFeatureCreated: updateFeature,
