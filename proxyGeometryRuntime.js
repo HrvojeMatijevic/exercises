@@ -631,9 +631,9 @@ console.log("--------------------------- proxyGeometryRuntime.js LOADED born-own
     function geometryStyleWrapper(baseStyleFn) {
       const base = normalizeStyleFunction(baseStyleFn || state.baseStyleFn);
       return function(feature, resolution) {
-        if (geometryEditActive) {
-          return base(feature, resolution);
-        }
+        // Even in edit mode, only the deterministic winner should be visible/editable.
+        // Edit mode only disables live reindexing during drag; it should not expose
+        // losing geometries.
         if (!isFeatureWinner(feature)) return null;
         return base(feature, resolution);
       };
